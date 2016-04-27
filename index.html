@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <script type="text/javascript" src="./libs/jquery/jquery.min.js"></script>
+    <script type="text/javascript" src="credentials.js"></script>
+    <script type="text/javascript" src="watersheds.js"></script>
+    <script type="text/javascript">$(document).ready(function() { watersheds.launch({
+      div: $('#map'),
+      mapbox_token: credentials.mapbox_token
+    });});</script>
+  </head>
+  <body>
+    <div id="map"></div>
+  </body>
+</html>

@@ -1,0 +1,26 @@
+{
+  "name": "watersheds",
+  "version": "1.0.0",
+  "description": "",
+  "main": "main.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "webpack-dev-server --progress --colors --inline",
+    "build": "webpack",
+    "build-min": "PROD_ENV=1 webpack"
+  },
+  "author": "Mark Phillips <mark@fernleafinteractive.com>",
+  "dependencies": {
+    "css-loader": "^0.23.1",
+    "file-loader": "^0.8.5",
+    "less": "^2.6.0",
+    "less-loader": "^2.2.2",
+    "mapshaper": "^0.3.21",
+    "sprintf": "^0.1.5",
+    "style-loader": "^0.13.0",
+    "url-loader": "^0.5.7"
+  },
+  "devDependencies": {
+    "webpack": "^1.12.14"
+  }
+}
