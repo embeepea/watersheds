@@ -104,7 +104,7 @@ var watersheds = {
                 success: function(data) {
                     var topo = data.topo;
                     topo.decodedArcs = topo.arcs.map(function(arc) { return tu.decodeArc(topo, arc); });
-                    topo.objects['bufferedsimplifiedh12'].geometries.forEach(function(geom) {
+                    topo.objects['huc12'].geometries.forEach(function(geom) {
                         if (geom.id) {
                             watersheds.geomByH12Code[geom.id] = geom;
                         }
@@ -132,7 +132,7 @@ var watersheds = {
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
                 if (watersheds.targetHuc) {
                     watersheds.renderHucWithStyle(ctx, watersheds.targetHuc, {
-                        lineWidth: 0,
+                        lineWidth: 1,
                         strokeStyle: tu.rgba(0,0,0,1.0),
                         fillStyle: tu.rgba(255,255,0,0.3)
                     });
@@ -196,7 +196,7 @@ var watersheds = {
         watersheds.targetHuc = null;
         var bds = watersheds.map.getBounds();
         var extent = [[bds.getWest(), bds.getEast()],[bds.getSouth(),bds.getNorth()]];
-        watersheds.h12Topo.objects['bufferedsimplifiedh12'].geometries.forEach(function(geom) {
+        watersheds.h12Topo.objects['huc12'].geometries.forEach(function(geom) {
             if (tu.boxes_overlap(geom.bbox, extent)) {
                 if (tu.box_contains_point(geom.bbox, p)) {
                     if (tu.point_in_geom2d(p, geom, watersheds.h12Topo)) {
