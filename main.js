@@ -6,7 +6,6 @@ var topojson = require('topojson');
 var sprintf = require('sprintf');
 var tu = require('./topojson_utils.js');
 
-
 var watersheds = {
     watershedLocationService: "http://watershed-location-service.fernleafinteractive.com/huc12",
     topojsonDataUrlPrefix: "https://s3.amazonaws.com/data.fernleafinteractive.com/watersheds/mobile",
@@ -212,7 +211,8 @@ var watersheds = {
     },
 
     launch: function(options) {
-        var where = {"center":{"lat":36.04021586880111,"lng":-83.5455322265625},"zoom":9};
+        //var where = {"center":{"lat":36.04021586880111,"lng":-83.5455322265625},"zoom":9};
+        var where = {"center":{"lat":39.232253141714885,"lng":-95.8447265625},"zoom":4};
         var defaults = {
             // // center of conus, zoomed out to see almost all of it:
             // map_center: [39.0,-99.0],
@@ -329,4 +329,3 @@ var watersheds = {
 };
 
 window.watersheds = watersheds;
-
