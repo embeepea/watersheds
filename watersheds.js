@@ -263,7 +263,32 @@
 	        });
 	    },
 
+	    displayHelp: function() {
+	        $.ajax({
+	            dataType: "text",
+	            method: "GET",
+	            url: watersheds.isMobile ? "help.mobile.html" : "help.desktop.html",
+	            success: function(text) {
+	                $("div.helpinset").html(text);
+	                if (watersheds.isMobile) {
+	                    $("div.helpinset").css({"font-size": "16pt"});
+	                }
+	                $("div.helpinset .closebutton").click(function() {
+	                    watersheds.hideHelp();
+	                });
+	                $("#helpscreen").show();
+	            }
+	        });
+	    },
+	    hideHelp: function() {
+	        $("#helpscreen").hide();
+	    },
+
 	    launch: function(options) {
+	        $("#helpscreen").hide();
+	        $("#helpbutton").click(function() {
+	            watersheds.displayHelp();
+	        });
 	        //var where = {"center":{"lat":36.04021586880111,"lng":-83.5455322265625},"zoom":9};
 	        var where = {"center":{"lat":39.232253141714885,"lng":-95.8447265625},"zoom":4};
 	        var defaults = {
