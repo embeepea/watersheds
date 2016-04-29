@@ -214,9 +214,12 @@ var watersheds = {
         $.ajax({
             dataType: "text",
             method: "GET",
-            url: "help.desktop.html",
+            url: watersheds.isMobile ? "help.mobile.html" : "help.desktop.html",
             success: function(text) {
                 $("div.helpinset").html(text);
+                if (watersheds.isMobile) {
+                    $("div.helpinset").css({"font-size": "16pt"});
+                }
                 $("div.helpinset .closebutton").click(function() {
                     watersheds.hideHelp();
                 });
