@@ -16,11 +16,12 @@ var watersheds = {
     canvasLayer: null,
     frozen: false,
 
-    splashmessage: function(text) {
+    splashmessage: function(text, showMs) {
+        if (showMs === undefined) { showMs = 1000; }
         $('#splashmessage').html(text);
         $('#splashmessage').show();
         setTimeout(function() {
-            $('#splashmessage').fadeOut(1000, function() {
+            $('#splashmessage').fadeOut(showMs, function() {
                 $('#splashmessage').hide();
             });
         }, 1000);
@@ -298,6 +299,7 @@ var watersheds = {
                         }
                     }});
             });
+            watersheds.splashmessage("<center>Tap to see<br>watersheds</center>", 2000);
         } else {
             watersheds.loadData(function() {
                 watersheds.map.on('mousemove', function(e) {
@@ -313,14 +315,10 @@ var watersheds = {
                     //}
                     watersheds.frozen = !watersheds.frozen;
                 });
-                var fadeTime = 750;
-                $('#splashmessage').html("ready!");
+                watersheds.splashmessage("<center>Move the cursor to<br>see watersheds</center>", 1500);
                 $('#map').hide();
                 $('#map').removeClass("dimmed");
-                $('#map').fadeIn(fadeTime);
-                $('#splashmessage').fadeOut(fadeTime, function() {
-                    $('#splashmessage').hide();
-                });
+                $('#map').fadeIn(750);
             });
         }
 
