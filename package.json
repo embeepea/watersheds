@@ -6,6 +6,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "webpack-dev-server --progress --colors --inline",
+    "local": "webpack-dev-server --host 192.168.1.6 --progress --colors --inline",
     "build": "webpack",
     "build-min": "PROD_ENV=1 webpack"
   },
@@ -18,6 +19,7 @@
     "mapshaper": "^0.3.21",
     "sprintf": "^0.1.5",
     "style-loader": "^0.13.0",
+    "topojson": "^1.6.24",
     "url-loader": "^0.5.7"
   },
   "devDependencies": {

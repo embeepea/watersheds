@@ -2,21 +2,20 @@ require('./style.css');
 require('./libs/leaflet/leaflet.js');
 require('./libs/leaflet/leaflet.css');
 require('./libs/Leaflet.CanvasLayer/leaflet_canvas_layer.js');
-
+var topojson = require('topojson');
 var sprintf = require('sprintf');
 var tu = require('./topojson_utils.js');
 
+
 var watersheds = {
+    watershedLocationService: "http://watershed-location-service.fernleafinteractive.com/huc12",
+    topojsonDataUrlPrefix: "https://s3.amazonaws.com/data.fernleafinteractive.com/watersheds/mobile",
+    isMobile: !!(/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)),
+
     geomByH12Code: {},
     upstreamGeomByH12Code: {},
+    canvasLayer: null,
     frozen: false,
-    //downstream: function(geom, f) {
-    //    if (('tohuc' in geom) && (geom.id === geom.tohuc)) { return; }
-    //    f(geom);
-    //    if (geom.tohuc in watersheds.geomByH12Code) {
-    //        watersheds.downstream( watersheds.geomByH12Code[geom.tohuc],  f);
-    //    }
-    //},
     downstream: function(id, f) {
         if ((id in watersheds.tohuc) && (id === watersheds.tohuc[id])) { return; }
         f(id);
@@ -47,25 +46,6 @@ var watersheds = {
     },
 
     renderHucWithStyle: function(ctx, geom, style) {
-        /*
-        if ('fillStyle' in style) {
-            ctx.fillStyle   = style.fillStyle;
-        }
-        if (style.lineWidth > 0) {
-            ctx.strokeStyle = style.strokeStyle;
-        }
-        ctx.beginPath();
-        if (geom.type === "Polygon") {
-            watersheds.renderPolygon(ctx, geom.arcs, watersheds.h12Topo);
-        } else if (geom.type === "MultiPolygon") {
-            geom.arcs.forEach(function(polygon) {
-                watersheds.renderPolygon(ctx, polygon, watersheds.h12Topo);
-            });
-        }
-        if ('fillStyle' in style) { ctx.fill(); }
-        if (style.lineWidth > 0) { ctx.stroke(); }
-         */
-
         if ('fillStyle' in style) {
             ctx.fillStyle   = style.fillStyle;
             ctx.beginPath();
@@ -78,7 +58,6 @@ var watersheds = {
             }
             ctx.fill();
         }
-
         if (style.lineWidth > 0) {
             ctx.strokeStyle = style.strokeStyle;
             ctx.beginPath();
@@ -93,11 +72,9 @@ var watersheds = {
         }
     },
 
-    loadData: function () {
+    loadData: function (doneFunc) {
         var requests = [
             $.ajax({
-//                url: 'data/h12_upstreams.topojson',
-                //url: 'data/newall2.topojson',
                 url: 'data/data.json',
                 dataType: 'json',
                 method: 'GET',
@@ -117,14 +94,56 @@ var watersheds = {
                     });
                     watersheds.h12Topo = topo;
                     watersheds.tohuc = data.tohuc;
+                    doneFunc();
                     console.log('ready');
                 }
             })
         ];
     },
 
+    addMobileLayers: function() {
+        watersheds.mobileLayers = {
+            huc12: L.geoJson(undefined, {
+                clickable: false,
+                style: function (feature) {
+                    return {
+                        weight: 1,
+                        color: tu.rgba(0,0,0,1.0),
+                        opacity: 1.0,
+                        fillColor: tu.rgba(255,255,0,0.3),
+                        fillOpacity: 1.0
+                    };
+                }}),
+            upstream: L.geoJson(undefined, {
+                clickable: false,
+                style: function (feature) {
+                    return {
+                        weight: 1,
+                        color: tu.rgba(0,0,0,1.0),
+                        opacity: 1.0,
+                        fillColor: tu.rgba(255,0,0,0.3),
+                        fillOpacity: 1.0
+                    };
+                }}),
+            downstream: L.geoJson(undefined, {
+                clickable: false,
+                style: function (feature) {
+                    return {
+                        weight: 1,
+                        color: tu.rgba(0,0,0,1.0),
+                        opacity: 1.0,
+                        fillColor: tu.rgba(0,0,255,0.6),
+                        fillOpacity: 1.0
+                    };
+                }})
+        };
+        watersheds.map.addLayer(watersheds.mobileLayers.huc12);
+        watersheds.map.addLayer(watersheds.mobileLayers.upstream);
+        watersheds.map.addLayer(watersheds.mobileLayers.downstream);
+    },
+
      addCanvasLayer: function() {
-        var canvasLayer = new (L.CanvasLayer.extend({
+         watersheds.canvasLayer = new (L.CanvasLayer.extend({
             render: function() {
                 var map = this._map;
                 var canvas = this.getCanvas();
@@ -158,38 +177,12 @@ var watersheds = {
                                                               });
                             }
                         });
-
-                        //watersheds.downstream(watersheds.geomByH12Code[watersheds.targetHuc.tohuc], function(geom) {
-                        //    watersheds.renderHucWithStyle(ctx, 
-                        //                                  geom,
-                        //                                  {
-                        //                                      //lineWidth: 0,
-                        //                                      lineWidth: 1,
-                        //                                      strokeStyle: tu.rgba(0,0,255,1.0),
-                        //                                      fillStyle: tu.rgba(0,0,255,0.6)
-                        //                                  });
-                        //});
-
-
                     }
 
                 }
             }
         }))();
-        watersheds.map.addLayer(canvasLayer);
-        watersheds.map.on('mousemove', function(e) {
-            if (!watersheds.frozen) {
-                var ll = e.latlng;
-                watersheds.setTargetHuc([ll.lng, ll.lat]);
-            }
-            canvasLayer.render();
-        });
-        watersheds.map.on('click', function(e) {
-            if (watersheds.targetHuc) {
-                console.log(watersheds.targetHuc.id);
-            }
-            watersheds.frozen = !watersheds.frozen;
-        });
+        watersheds.map.addLayer(watersheds.canvasLayer);
     },
 
     setTargetHuc: function(p) {
@@ -237,33 +230,91 @@ var watersheds = {
             minZoom: 2,
             layers: [streets],
             zoomControl: false,
-            zoomAnimation: false
+            zoomAnimation: watersheds.isMobile   // should be true on mobile, false elsewhere
         });
-        window.where = function() {
+        watersheds.where = function() {
             console.log(JSON.stringify({
-                center: map.getCenter(),
-                zoom: map.getZoom()
+                center: watersheds.map.getCenter(),
+                zoom: watersheds.map.getZoom()
             }));
         };
-        L.control.attribution({position: 'topright', prefix: ''}).addTo(watersheds.map);
-        L.control.zoom({ position: 'topright' }).addTo(watersheds.map);
+        if (!watersheds.isMobile) {
+            // don't show zoom control on mobile devices
+            L.control.zoom({ position: 'topright' }).addTo(watersheds.map);
+        }
         watersheds.map.setView(options.map_center, options.map_zoom);
-        watersheds.loadData();
-        watersheds.addCanvasLayer();
-
-//$.ajax({
-////    url: '101900110203.geojson',
-//    url: 'nm.geojson',
-//    dataType: 'json',
-//    method: 'GET',
-//    success: function(geoj) {
-//console.log(geoj);
-//        L.geoJson(geoj).addTo(watersheds.map);
-//    }
-//});
-
+        if (watersheds.isMobile) {
+            watersheds.addMobileLayers();
+        } else {
+            watersheds.addCanvasLayer();
+        }
+        if (watersheds.isMobile) {
+            $('#map').removeClass("dimmed");
+            watersheds.map.on('click', function(e) {
+                var ll = e.latlng;
+                watersheds.mobileLayers.huc12.clearLayers();
+                watersheds.mobileLayers.upstream.clearLayers();
+                watersheds.mobileLayers.downstream.clearLayers();
+                $.ajax({
+                    url: sprintf("%s/%f,%f", watersheds.watershedLocationService, ll.lng, ll.lat),
+                    dataType: 'text',
+                    method: 'GET',
+                    success: function(id) {
+                        var targetHucId = id.trim();
+                        if (targetHucId !== "") {
+                            //targetHucId = "060101040210";
+                            $.ajax({
+                                url: sprintf("%s/%s.topojson", watersheds.topojsonDataUrlPrefix, targetHucId),
+                                dataType: 'json',
+                                method: 'GET',
+                                success: function(topo) {
+                                    if (topo.objects.huc12) {
+                                        watersheds.mobileLayers.huc12.addData(
+                                            topojson.feature(topo,
+                                                             topo.objects.huc12.geometries[0]));
+                                    }
+                                    if (topo.objects.upstream) {
+                                        watersheds.mobileLayers.upstream.addData(
+                                            topojson.feature(topo,
+                                                             topo.objects.upstream.geometries[0]));
+                                    }
+                                    if (topo.objects.downstream) {
+                                        watersheds.mobileLayers.downstream.addData(
+                                            topojson.feature(topo,
+                                                             topo.objects.downstream.geometries[0]));
+                                    }
+                                }});
+                        }
+                    }});
+            });
+        } else {
+            watersheds.loadData(function() {
+                watersheds.map.on('mousemove', function(e) {
+                    if (!watersheds.frozen) {
+                        var ll = e.latlng;
+                        watersheds.setTargetHuc([ll.lng, ll.lat]);
+                    }
+                    watersheds.canvasLayer.render();
+                });
+                watersheds.map.on('click', function(e) {
+                    if (watersheds.targetHuc) {
+                        console.log(watersheds.targetHuc.id);
+                    }
+                    watersheds.frozen = !watersheds.frozen;
+                });
+                var fadeTime = 750;
+                $('#waitmessage').html("ready!");
+                $('#map').hide();
+                $('#map').removeClass("dimmed");
+                $('#map').fadeIn(fadeTime);
+                $('#waitmessage').fadeOut(fadeTime, function() {
+                    $('#waitmessage').hide();
+                });
+            });
+        }
 
     }
 };
 
 window.watersheds = watersheds;
+
