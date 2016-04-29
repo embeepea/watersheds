@@ -1,0 +1,70 @@
+<div class="helpheader">
+ <div class="closebutton">
+    <i class="fa fa-times-circle-o" aria-hidden="true"></i>
+  </div>
+</div>
+
+<p>
+This map shows how surface water flows in the United States.
+</p>
+
+<p>
+As you move the mouse over the map, the program highlights the
+*upstream* area in *red*, and the *downstream* area in *blue*.  The
+coloring changes dynamically as you move the mouse; it's always
+based on whatever the current mouse position is.
+</p>
+
+</p>
+You can also zoom in or out on the map and pan around just like
+with other web based maps.
+</p>
+
+</p>
+If you click once on the map, the dynamic updating stops and the
+coloring "freezes" on the location where you click.  To unfreeze,
+just click a second time.
+</p>
+
+</p>
+The coloring is based on the level-12 watershed regions as published
+by the US Geological Survey.  There are just over 100,000 of these
+regions covering the United States; each one is a polygon defining
+local drainage basin that is one or two miles or so across.  The data
+in this program came from the <a
+href="http://nhd.usgs.gov/wbd.html">Watershed Boundary Dataset</a>,
+which contains the geometry of the watershed regions and the flow
+relationships between them.
+</p>
+
+</p>
+The region that is immediately under the cursor is drawn in yellow;
+you might have to zoom in pretty far on the map to see it.  The red area
+on the map shows all the regions that are upstream of the yellow one, and
+the blue area shows all the retions that are downstream.
+</p>
+
+</p>
+Some interesting things to note:
+</p>
+
+<ul>
+<li>Most locations do not have much upstream (red) area.  The
+  only locations with large upstream areas tend to be in or
+  very near rivers.</li>
+<li>Click on the Mississippi River near downtown New Orleans
+  to see a huge example.</li>
+<li>Notice how the drainage direction jumps from one side
+  to the other as you move back and forth across the
+  continental divides in both the eastern and western
+  mountains.</li>
+<li>Notice that there is a large covering most of Nevada
+  and the western part of Utah where the downstream
+  drainage never makes it to an ocean.  This area
+  is called the <a href="https://en.wikipedia.org/wiki/Great_Basin">Great Basin</a>.</li>
+</ul>
+
+</p>
+The source code for this application is available
+<a href="https://github.com/embeepea/watersheds">on Github</a>.
+</p>

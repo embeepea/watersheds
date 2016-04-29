@@ -210,7 +210,29 @@ var watersheds = {
         });
     },
 
+    displayHelp: function() {
+        $.ajax({
+            dataType: "text",
+            method: "GET",
+            url: "help.desktop.html",
+            success: function(text) {
+                $("div.helpinset").html(text);
+                $("div.helpinset .closebutton").click(function() {
+                    watersheds.hideHelp();
+                });
+                $("#helpscreen").show();
+            }
+        });
+    },
+    hideHelp: function() {
+        $("#helpscreen").hide();
+    },
+
     launch: function(options) {
+        $("#helpscreen").hide();
+        $("#helpbutton").click(function() {
+            watersheds.displayHelp();
+        });
         //var where = {"center":{"lat":36.04021586880111,"lng":-83.5455322265625},"zoom":9};
         var where = {"center":{"lat":39.232253141714885,"lng":-95.8447265625},"zoom":4};
         var defaults = {
