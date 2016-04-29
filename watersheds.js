@@ -158,7 +158,6 @@
 	                    watersheds.h12Topo = topo;
 	                    watersheds.tohuc = data.tohuc;
 	                    doneFunc();
-	                    console.log('ready');
 	                }
 	            })
 	        ];
@@ -362,9 +361,9 @@
 	                    watersheds.canvasLayer.render();
 	                });
 	                watersheds.map.on('click', function(e) {
-	                    if (watersheds.targetHuc) {
-	                        console.log(watersheds.targetHuc.id);
-	                    }
+	                    //if (watersheds.targetHuc) {
+	                    //    console.log(watersheds.targetHuc.id);
+	                    //}
 	                    watersheds.frozen = !watersheds.frozen;
 	                });
 	                var fadeTime = 750;
