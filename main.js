@@ -16,6 +16,17 @@ var watersheds = {
     upstreamGeomByH12Code: {},
     canvasLayer: null,
     frozen: false,
+
+    splashmessage: function(text) {
+        $('#splashmessage').html(text);
+        $('#splashmessage').show();
+        setTimeout(function() {
+            $('#splashmessage').fadeOut(1000, function() {
+                $('#splashmessage').hide();
+            });
+        }, 1000);
+    },
+
     downstream: function(id, f) {
         if ((id in watersheds.tohuc) && (id === watersheds.tohuc[id])) { return; }
         f(id);
@@ -250,6 +261,7 @@ var watersheds = {
         }
         if (watersheds.isMobile) {
             $('#map').removeClass("dimmed");
+            $('#splashmessage').hide();
             watersheds.map.on('click', function(e) {
                 var ll = e.latlng;
                 watersheds.mobileLayers.huc12.clearLayers();
@@ -303,12 +315,12 @@ var watersheds = {
                     watersheds.frozen = !watersheds.frozen;
                 });
                 var fadeTime = 750;
-                $('#waitmessage').html("ready!");
+                $('#splashmessage').html("ready!");
                 $('#map').hide();
                 $('#map').removeClass("dimmed");
                 $('#map').fadeIn(fadeTime);
-                $('#waitmessage').fadeOut(fadeTime, function() {
-                    $('#waitmessage').hide();
+                $('#splashmessage').fadeOut(fadeTime, function() {
+                    $('#splashmessage').hide();
                 });
             });
         }
