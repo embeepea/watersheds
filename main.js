@@ -47,6 +47,7 @@ var watersheds = {
     },
 
     renderPolygonExteriorRing: function (ctx, geom, topo) {
+        if (geom.length === 0) { return; }
         var ring = geom[0];
         var first = true;
         ring.forEach(function(i) {
@@ -56,15 +57,15 @@ var watersheds = {
         ctx.closePath();
     },
 
-    renderHucWithStyle: function(ctx, geom, style) {
+    renderHucWithStyle: function(ctx, geom, topo, style) {
         if ('fillStyle' in style) {
             ctx.fillStyle   = style.fillStyle;
             ctx.beginPath();
             if (geom.type === "Polygon") {
-                watersheds.renderPolygon(ctx, geom.arcs, watersheds.h12Topo);
+                watersheds.renderPolygon(ctx, geom.arcs, topo);
             } else if (geom.type === "MultiPolygon") {
                 geom.arcs.forEach(function(polygon) {
-                    watersheds.renderPolygon(ctx, polygon, watersheds.h12Topo);
+                    watersheds.renderPolygon(ctx, polygon, topo);
                 });
             }
             ctx.fill();
@@ -73,10 +74,10 @@ var watersheds = {
             ctx.strokeStyle = style.strokeStyle;
             ctx.beginPath();
             if (geom.type === "Polygon") {
-                watersheds.renderPolygonExteriorRing(ctx, geom.arcs, watersheds.h12Topo);
+                watersheds.renderPolygonExteriorRing(ctx, geom.arcs, topo);
             } else if (geom.type === "MultiPolygon") {
                 geom.arcs.forEach(function(polygon) {
-                    watersheds.renderPolygonExteriorRing(ctx, polygon, watersheds.h12Topo);
+                    watersheds.renderPolygonExteriorRing(ctx, polygon, topo);
                 });
             }
             ctx.stroke();
@@ -107,7 +108,37 @@ var watersheds = {
                     watersheds.tohuc = data.tohuc;
                     doneFunc();
                 }
+            }),
+
+
+            $.ajax({
+                url: 'data/hierarchy.topojson',
+                dataType: 'json',
+                method: 'GET',
+                success: function(topo) {
+                    topo.decodedArcs = topo.arcs.map(function(arc) { return tu.decodeArc(topo, arc); });
+                    topo.objects['huc12'].geometries.forEach(function(geom) {
+                        geom.bbox = tu.geom_bbox(geom, topo);
+                    });
+                    topo.objects['huc10'].geometries.forEach(function(geom) {
+                        geom.bbox = tu.geom_bbox(geom, topo);
+                    });
+                    topo.objects['huc8'].geometries.forEach(function(geom) {
+                        geom.bbox = tu.geom_bbox(geom, topo);
+                    });
+                    topo.objects['huc6'].geometries.forEach(function(geom) {
+                        geom.bbox = tu.geom_bbox(geom, topo);
+                    });
+                    topo.objects['huc4'].geometries.forEach(function(geom) {
+                        geom.bbox = tu.geom_bbox(geom, topo);
+                    });
+                    topo.objects['huc2'].geometries.forEach(function(geom) {
+                        geom.bbox = tu.geom_bbox(geom, topo);
+                    });
+                    watersheds.hierTopo = topo;
+                }
             })
+
         ];
     },
 
@@ -152,6 +183,22 @@ var watersheds = {
         watersheds.map.addLayer(watersheds.mobileLayers.downstream);
     },
 
+    renderHierLevel: function(level, ctx) {
+        var bds = watersheds.map.getBounds();
+        var extent = [[bds.getWest(), bds.getEast()],[bds.getSouth(),bds.getNorth()]];
+        watersheds.hierTopo.objects[level].geometries.forEach(function(geom) {
+            if (tu.boxes_overlap(geom.bbox, extent)) {
+                watersheds.renderHucWithStyle(ctx, 
+                                              geom,
+                                              watersheds.hierTopo,
+                                              {
+                                                  lineWidth: 1,
+                                                  strokeStyle: tu.rgba(0,0,0,1.0)
+                                              });
+            }
+        });
+    },
+
      addCanvasLayer: function() {
          watersheds.canvasLayer = new (L.CanvasLayer.extend({
             render: function() {
@@ -160,7 +207,7 @@ var watersheds = {
                 var ctx = canvas.getContext('2d');
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
                 if (watersheds.targetHuc) {
-                    watersheds.renderHucWithStyle(ctx, watersheds.targetHuc, {
+                    watersheds.renderHucWithStyle(ctx, watersheds.targetHuc, watersheds.h12Topo, {
                         lineWidth: 1,
                         strokeStyle: tu.rgba(0,0,0,1.0),
                         fillStyle: tu.rgba(255,255,0,0.3)
@@ -168,6 +215,7 @@ var watersheds = {
                     if (watersheds.upstreamGeomByH12Code[watersheds.targetHuc.id]) {
                         watersheds.renderHucWithStyle(ctx, 
                                                       watersheds.upstreamGeomByH12Code[watersheds.targetHuc.id],
+                                                      watersheds.h12Topo,
                                                       {
                                                           lineWidth: 1,
                                                           strokeStyle: tu.rgba(0,0,0,1.0),
@@ -179,6 +227,7 @@ var watersheds = {
                             if (watersheds.geomByH12Code[id]) {
                                 watersheds.renderHucWithStyle(ctx, 
                                                               watersheds.geomByH12Code[id],
+                                                              watersheds.h12Topo,
                                                               {
                                                                   //lineWidth: 0,
                                                                   lineWidth: 1,
@@ -189,6 +238,30 @@ var watersheds = {
                         });
                     }
 
+                }
+                if (watersheds.hierTopo) {
+                    var zoom = watersheds.map.getZoom();
+                    if (zoom <= 5) {
+                        watersheds.renderHierLevel('huc2', ctx);
+                    } else if (zoom <= 6) {
+                        watersheds.renderHierLevel('huc2', ctx);
+                    } else if (zoom <= 7) {
+                        watersheds.renderHierLevel('huc4', ctx);
+                    } else if (zoom <= 8) {
+                        watersheds.renderHierLevel('huc6', ctx);
+                    } else if (zoom <= 9) {
+                        watersheds.renderHierLevel('huc8', ctx);
+                    } else if (zoom <= 10) {
+                        watersheds.renderHierLevel('huc8', ctx);
+                    } else if (zoom <= 11) {
+                        watersheds.renderHierLevel('huc10', ctx);
+                    } else if (zoom <= 12) {
+                        watersheds.renderHierLevel('huc10', ctx);
+                    } else if (zoom <= 13) {
+                        watersheds.renderHierLevel('huc12', ctx);
+                    } else if (zoom <= 14) {
+                        watersheds.renderHierLevel('huc12', ctx);
+                    }
                 }
             }
         }))();
