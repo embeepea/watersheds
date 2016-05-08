@@ -5,6 +5,7 @@ require('./libs/Leaflet.CanvasLayer/leaflet_canvas_layer.js');
 var topojson = require('topojson');
 var sprintf = require('sprintf');
 var tu = require('./topojson_utils.js');
+var URL = require('./url_utils.js');
 
 var watersheds = {
     watershedLocationService: "http://watershed-location-service.fernleafinteractive.com/huc12",
@@ -15,6 +16,8 @@ var watersheds = {
     upstreamGeomByH12Code: {},
     canvasLayer: null,
     frozen: false,
+
+    pl: null,
 
     splashmessage: function(text, showMs) {
         if (showMs === undefined) { showMs = 1000; }
@@ -204,6 +207,8 @@ var watersheds = {
                 if (tu.box_contains_point(geom.bbox, p)) {
                     if (tu.point_in_geom2d(p, geom, watersheds.h12Topo)) {
                         watersheds.targetHuc = geom;
+                        watersheds.pl.setId(geom.id);
+                        window.history.replaceState({}, "", watersheds.pl.toString());
                     }
                 }
             }
@@ -229,6 +234,35 @@ var watersheds = {
     },
     hideHelp: function() {
         $("#helpscreen").hide();
+    },
+
+    setMobileTargetId: function(id) {
+        var targetHucId = id.trim();
+        if (targetHucId !== "") {
+            //targetHucId = "060101040210";
+            $.ajax({
+                url: sprintf("%s/%s.topojson", watersheds.topojsonDataUrlPrefix, targetHucId),
+                dataType: 'json',
+                method: 'GET',
+                success: function(topo) {
+                    watersheds.pl.setId(targetHucId);
+                    if (topo.objects.huc12) {
+                        watersheds.mobileLayers.huc12.addData(
+                            topojson.feature(topo,
+                                             topo.objects.huc12.geometries[0]));
+                    }
+                    if (topo.objects.upstream) {
+                        watersheds.mobileLayers.upstream.addData(
+                            topojson.feature(topo,
+                                             topo.objects.upstream.geometries[0]));
+                    }
+                    if (topo.objects.downstream) {
+                        watersheds.mobileLayers.downstream.addData(
+                            topojson.feature(topo,
+                                             topo.objects.downstream.geometries[0]));
+                    }
+                }});
+        }
     },
 
     launch: function(options) {
@@ -278,7 +312,20 @@ var watersheds = {
             // don't show zoom control on mobile devices
             L.control.zoom({ position: 'topright' }).addTo(watersheds.map);
         }
-        watersheds.map.setView(options.map_center, options.map_zoom);
+        watersheds.pl = Permalink(URL({url: window.location.toString()}));
+        if (!watersheds.pl.haveZoom()) {
+            watersheds.pl.setZoom(options.map_zoom);
+        }
+        if (!watersheds.pl.haveCenter()) {
+            watersheds.pl.setCenter(options.map_center);
+        }
+        watersheds.map.setView(watersheds.pl.getCenter(), watersheds.pl.getZoom());
+        watersheds.map.on('move', function(e) {
+            var c = watersheds.map.getCenter();
+            watersheds.pl.setCenter([c.lat,c.lng]);
+            watersheds.pl.setZoom(watersheds.map.getZoom());
+            window.history.replaceState({}, "", watersheds.pl.toString());
+        });
         if (watersheds.isMobile) {
             watersheds.addMobileLayers();
         } else {
@@ -296,35 +343,16 @@ var watersheds = {
                     url: sprintf("%s/%f,%f", watersheds.watershedLocationService, ll.lng, ll.lat),
                     dataType: 'text',
                     method: 'GET',
-                    success: function(id) {
-                        var targetHucId = id.trim();
-                        if (targetHucId !== "") {
-                            //targetHucId = "060101040210";
-                            $.ajax({
-                                url: sprintf("%s/%s.topojson", watersheds.topojsonDataUrlPrefix, targetHucId),
-                                dataType: 'json',
-                                method: 'GET',
-                                success: function(topo) {
-                                    if (topo.objects.huc12) {
-                                        watersheds.mobileLayers.huc12.addData(
-                                            topojson.feature(topo,
-                                                             topo.objects.huc12.geometries[0]));
-                                    }
-                                    if (topo.objects.upstream) {
-                                        watersheds.mobileLayers.upstream.addData(
-                                            topojson.feature(topo,
-                                                             topo.objects.upstream.geometries[0]));
-                                    }
-                                    if (topo.objects.downstream) {
-                                        watersheds.mobileLayers.downstream.addData(
-                                            topojson.feature(topo,
-                                                             topo.objects.downstream.geometries[0]));
-                                    }
-                                }});
-                        }
-                    }});
+                    success: watersheds.setMobileTargetId
+                });
             });
-            watersheds.splashmessage("<center>Tap to see<br>watersheds</center>", 2000);
+            if (watersheds.pl.haveId()) {
+                watersheds.setMobileTargetId(watersheds.pl.getId());
+                watersheds.splashmessage(watersheds.pl.getId(), 1500);
+                watersheds.splashmessage("<center>Tap to change<br>watersheds</center>", 2000);
+            } else {
+                watersheds.splashmessage("<center>Tap to see<br>watersheds</center>", 2000);
+            }
         } else {
             watersheds.loadData(function() {
                 watersheds.map.on('mousemove', function(e) {
@@ -340,7 +368,16 @@ var watersheds = {
                     //}
                     watersheds.frozen = !watersheds.frozen;
                 });
-                watersheds.splashmessage("<center>Move the cursor to<br>see watersheds</center>", 1500);
+                if (watersheds.pl.haveId()) {
+                    if (watersheds.pl.getId() in watersheds.geomByH12Code) {
+                        watersheds.targetHuc = watersheds.geomByH12Code[watersheds.pl.getId()];
+                        watersheds.frozen = true;
+                        watersheds.canvasLayer.render();
+                    }
+                    watersheds.splashmessage("<center>Click to change watersheds</center>", 1500);
+                } else {
+                    watersheds.splashmessage("<center>Move the cursor to<br>see watersheds</center>", 1500);
+                }
                 $('#map').hide();
                 $('#map').removeClass("dimmed");
                 $('#map').fadeIn(750);
@@ -349,5 +386,40 @@ var watersheds = {
 
     }
 };
+
+function Permalink(url) {
+    var center = null, zoom = null, id = null;
+    if ('zoom' in url.params) {
+        zoom = parseInt(url.params.zoom, 10);
+    }
+    if ('center' in url.params) {
+        center = url.params.center.split(',').map(function(s) { return parseFloat(s); });
+    }
+    if ('id' in url.params) {
+        id = url.params.id;
+    }
+    return {
+        'toString' : function() { return url.toString(); },
+        'haveCenter' : function() { return center !== null; },
+        'getCenter'  : function() { return center; },
+        'setCenter'  : function(c) {
+            center = c;
+            url.params.center = sprintf("%.4f", center[0]) + "," + sprintf("%.4f", center[1]);
+        },
+        'haveZoom' : function() { return zoom !== null; },
+        'getZoom'  : function() { return zoom; },
+        'setZoom'  : function(z) {
+            zoom = z;
+            url.params.zoom = zoom.toString();
+        },
+        'haveId'   : function() { return id !== null; },
+        'getId'    : function() { return id; },
+        'setId'    : function(newId) {
+            id = newId;
+            url.params.id = id;
+        }
+    };
+}
+
 
 window.watersheds = watersheds;
