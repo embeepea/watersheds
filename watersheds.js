@@ -58,6 +58,7 @@
 	var topojson = __webpack_require__(12);
 	var sprintf = __webpack_require__(13);
 	var tu = __webpack_require__(14);
+	var URL = __webpack_require__(15);
 
 	var watersheds = {
 	    watershedLocationService: "http://watershed-location-service.fernleafinteractive.com/huc12",
@@ -68,6 +69,8 @@
 	    upstreamGeomByH12Code: {},
 	    canvasLayer: null,
 	    frozen: false,
+
+	    pl: null,
 
 	    splashmessage: function(text, showMs) {
 	        if (showMs === undefined) { showMs = 1000; }
@@ -257,6 +260,8 @@
 	                if (tu.box_contains_point(geom.bbox, p)) {
 	                    if (tu.point_in_geom2d(p, geom, watersheds.h12Topo)) {
 	                        watersheds.targetHuc = geom;
+	                        watersheds.pl.setId(geom.id);
+	                        window.history.replaceState({}, "", watersheds.pl.toString());
 	                    }
 	                }
 	            }
@@ -282,6 +287,35 @@
 	    },
 	    hideHelp: function() {
 	        $("#helpscreen").hide();
+	    },
+
+	    setMobileTargetId: function(id) {
+	        var targetHucId = id.trim();
+	        if (targetHucId !== "") {
+	            //targetHucId = "060101040210";
+	            $.ajax({
+	                url: sprintf("%s/%s.topojson", watersheds.topojsonDataUrlPrefix, targetHucId),
+	                dataType: 'json',
+	                method: 'GET',
+	                success: function(topo) {
+	                    watersheds.pl.setId(targetHucId);
+	                    if (topo.objects.huc12) {
+	                        watersheds.mobileLayers.huc12.addData(
+	                            topojson.feature(topo,
+	                                             topo.objects.huc12.geometries[0]));
+	                    }
+	                    if (topo.objects.upstream) {
+	                        watersheds.mobileLayers.upstream.addData(
+	                            topojson.feature(topo,
+	                                             topo.objects.upstream.geometries[0]));
+	                    }
+	                    if (topo.objects.downstream) {
+	                        watersheds.mobileLayers.downstream.addData(
+	                            topojson.feature(topo,
+	                                             topo.objects.downstream.geometries[0]));
+	                    }
+	                }});
+	        }
 	    },
 
 	    launch: function(options) {
@@ -331,7 +365,20 @@
 	            // don't show zoom control on mobile devices
 	            L.control.zoom({ position: 'topright' }).addTo(watersheds.map);
 	        }
-	        watersheds.map.setView(options.map_center, options.map_zoom);
+	        watersheds.pl = Permalink(URL({url: window.location.toString()}));
+	        if (!watersheds.pl.haveZoom()) {
+	            watersheds.pl.setZoom(options.map_zoom);
+	        }
+	        if (!watersheds.pl.haveCenter()) {
+	            watersheds.pl.setCenter(options.map_center);
+	        }
+	        watersheds.map.setView(watersheds.pl.getCenter(), watersheds.pl.getZoom());
+	        watersheds.map.on('move', function(e) {
+	            var c = watersheds.map.getCenter();
+	            watersheds.pl.setCenter([c.lat,c.lng]);
+	            watersheds.pl.setZoom(watersheds.map.getZoom());
+	            window.history.replaceState({}, "", watersheds.pl.toString());
+	        });
 	        if (watersheds.isMobile) {
 	            watersheds.addMobileLayers();
 	        } else {
@@ -349,35 +396,16 @@
 	                    url: sprintf("%s/%f,%f", watersheds.watershedLocationService, ll.lng, ll.lat),
 	                    dataType: 'text',
 	                    method: 'GET',
-	                    success: function(id) {
-	                        var targetHucId = id.trim();
-	                        if (targetHucId !== "") {
-	                            //targetHucId = "060101040210";
-	                            $.ajax({
-	                                url: sprintf("%s/%s.topojson", watersheds.topojsonDataUrlPrefix, targetHucId),
-	                                dataType: 'json',
-	                                method: 'GET',
-	                                success: function(topo) {
-	                                    if (topo.objects.huc12) {
-	                                        watersheds.mobileLayers.huc12.addData(
-	                                            topojson.feature(topo,
-	                                                             topo.objects.huc12.geometries[0]));
-	                                    }
-	                                    if (topo.objects.upstream) {
-	                                        watersheds.mobileLayers.upstream.addData(
-	                                            topojson.feature(topo,
-	                                                             topo.objects.upstream.geometries[0]));
-	                                    }
-	                                    if (topo.objects.downstream) {
-	                                        watersheds.mobileLayers.downstream.addData(
-	                                            topojson.feature(topo,
-	                                                             topo.objects.downstream.geometries[0]));
-	                                    }
-	                                }});
-	                        }
-	                    }});
+	                    success: watersheds.setMobileTargetId
+	                });
 	            });
-	            watersheds.splashmessage("<center>Tap to see<br>watersheds</center>", 2000);
+	            if (watersheds.pl.haveId()) {
+	                watersheds.setMobileTargetId(watersheds.pl.getId());
+	                watersheds.splashmessage(watersheds.pl.getId(), 1500);
+	                watersheds.splashmessage("<center>Tap to change<br>watersheds</center>", 2000);
+	            } else {
+	                watersheds.splashmessage("<center>Tap to see<br>watersheds</center>", 2000);
+	            }
 	        } else {
 	            watersheds.loadData(function() {
 	                watersheds.map.on('mousemove', function(e) {
@@ -393,7 +421,16 @@
 	                    //}
 	                    watersheds.frozen = !watersheds.frozen;
 	                });
-	                watersheds.splashmessage("<center>Move the cursor to<br>see watersheds</center>", 1500);
+	                if (watersheds.pl.haveId()) {
+	                    if (watersheds.pl.getId() in watersheds.geomByH12Code) {
+	                        watersheds.targetHuc = watersheds.geomByH12Code[watersheds.pl.getId()];
+	                        watersheds.frozen = true;
+	                        watersheds.canvasLayer.render();
+	                    }
+	                    watersheds.splashmessage("<center>Click to change watersheds</center>", 1500);
+	                } else {
+	                    watersheds.splashmessage("<center>Move the cursor to<br>see watersheds</center>", 1500);
+	                }
 	                $('#map').hide();
 	                $('#map').removeClass("dimmed");
 	                $('#map').fadeIn(750);
@@ -402,6 +439,41 @@
 
 	    }
 	};
+
+	function Permalink(url) {
+	    var center = null, zoom = null, id = null;
+	    if ('zoom' in url.params) {
+	        zoom = parseInt(url.params.zoom, 10);
+	    }
+	    if ('center' in url.params) {
+	        center = url.params.center.split(',').map(function(s) { return parseFloat(s); });
+	    }
+	    if ('id' in url.params) {
+	        id = url.params.id;
+	    }
+	    return {
+	        'toString' : function() { return url.toString(); },
+	        'haveCenter' : function() { return center !== null; },
+	        'getCenter'  : function() { return center; },
+	        'setCenter'  : function(c) {
+	            center = c;
+	            url.params.center = sprintf("%.4f", center[0]) + "," + sprintf("%.4f", center[1]);
+	        },
+	        'haveZoom' : function() { return zoom !== null; },
+	        'getZoom'  : function() { return zoom; },
+	        'setZoom'  : function(z) {
+	            zoom = z;
+	            url.params.zoom = zoom.toString();
+	        },
+	        'haveId'   : function() { return id !== null; },
+	        'getId'    : function() { return id; },
+	        'setId'    : function(newId) {
+	            id = newId;
+	            url.params.id = id;
+	        }
+	    };
+	}
+
 
 	window.watersheds = watersheds;
 
@@ -2333,6 +2405,86 @@
 	    });
 	    return new CanvasLayer();
 	};
+
+
+/***/ },
+/* 15 */
+/***/ function(module, exports) {
+
+	//
+	// URL utility object
+	// 
+	// Call this function to create a URL utility object.  Returns an object containing properties
+	// that make it convenient to access and/or construct parts of a URL.
+	// 
+	// For example:
+	// 
+	//     // accessing parts of an existing URL:
+	//     var url = URL({url: "http://www.example.com/look/ma?x=no&y=hands"});
+	//     console.log(url.baseurl);    // ==> "http://www.example.com/look/ma"
+	//     console.log(url.params);     // ==> { 'x' : 'no', 'y' : 'hands' }
+	//     console.log(url.toString()); // ==> "http://www.example.com/look/ma?x=no&y=hands"
+	// 
+	//     // constructing a new url:
+	//     var url = URL({baseurl: "http://www.example.com/look/ma"});
+	//     url.params.x = 42;
+	//     url.params.y = 101;
+	//     url.params.fred = 'yes';
+	//     console.log(url.toString()); // ==> "http:www.example.com/look/ma?x=42&y=101&fred=yes"
+	//
+	function URL(options) {
+	    var paramstring, params, url, i, name, value;
+	    var obj = {
+	        'params' : {},
+	        'baseurl' : null,
+	        'toString' : function() {
+	            var prop, vals = [];
+	            for (prop in obj.params) {
+	                vals.push(prop + '=' + obj.params[prop]);
+	            }
+	            return obj.baseurl + '?' + vals.join("&");
+	        }
+	    };
+
+	    if ('url' in options) {
+	        url = options.url;
+
+	        i = url.indexOf('?');
+	        if (i < 0) {
+	            obj.baseurl = url;
+	            paramstring = "";
+	        } else {
+	            obj.baseurl = url.substring(0,i);
+	            paramstring = url.substring(i+1); // Remove everything up to and including the first '?' char.
+	        }
+
+	        if (paramstring.length > 0) {
+	            paramstring.split('&').forEach(function(c) {
+	                i = c.indexOf('=');
+	                if (i >= 0) {
+	                    name = c.substring(0,i);
+	                    value = c.substring(i+1);
+	                } else {
+	                    name = c;
+	                    value = null;
+	                }
+	                obj.params[name] = value;
+	            });
+	        }
+	    } else if ('baseurl' in options) {
+	        url = options.baseurl;
+	        i = url.indexOf('?');
+	        if (i < 0) {
+	            obj.baseurl = url;
+	        } else {
+	            obj.baseurl = url.substring(0,i);
+	        }
+	    }
+
+	    return obj;
+	}
+
+	module.exports = URL;
 
 
 /***/ }
