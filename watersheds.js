@@ -357,6 +357,11 @@
 	            zoomControl: false,
 	            zoomAnimation: watersheds.isMobile   // should be true on mobile, false elsewhere
 	        });
+	        var credits = L.control.attribution({
+	            position: "bottomright"
+	        }).addTo(watersheds.map);
+	        credits.addAttribution("© <a href='https://www.mapbox.com/map-feedback/'>Mapbox</a> © <a href='http://www.openstreetmap.org/copyright'>OpenStreetMap</a>");
+
 	        watersheds.where = function() {
 	            console.log(JSON.stringify({
 	                center: watersheds.map.getCenter(),
