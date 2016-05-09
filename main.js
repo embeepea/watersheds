@@ -8,6 +8,8 @@ var tu = require('./topojson_utils.js');
 var URL = require('./url_utils.js');
 
 var watersheds = {
+    //dataJSONUrl: "data/data.json",
+    dataJSONUrl: "http://wscdn.fernleafinteractive.com/data.json",
     watershedLocationService: "http://watershed-location-service.fernleafinteractive.com/huc12",
     topojsonDataUrlPrefix: "https://s3.amazonaws.com/data.watersheds.fernleafinteractive.com/mobile",
     isMobile: !!(/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)),
@@ -89,7 +91,7 @@ var watersheds = {
     loadData: function (doneFunc) {
         var requests = [
             $.ajax({
-                url: 'data/data.json',
+                url: watersheds.dataJSONUrl,
                 dataType: 'json',
                 method: 'GET',
                 success: function(data) {
