@@ -9,7 +9,6 @@ var URL = require('./url.js');
 
 // A note about terminology:
 // 
-
 // Watershed regions in the Watershed Boundary Dataset
 // (http://nhd.usgs.gov/wbd.html) are called "hydrologic units".  The
 // dataset contains a hierarchy of 6 levels of these regions.  The

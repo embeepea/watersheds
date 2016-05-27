@@ -320,22 +320,4 @@ function isPointInGeom(p, geom, topo) {
 }
 tu.isPointInGeom = isPointInGeom;
 
-// function renderPolygon(ctx, map, arcs, rings, style, render) {
-//     Object.keys(style).forEach(function(attr) {
-//         ctx[attr] = style[attr];
-//     });
-//     render = render || { fill: true, stroke: true };
-//     ctx.beginPath();
-//     rings.forEach(function(ring) {
-//         var first = true;
-//         ring.forEach(function(i) {
-//             walkArc(arcs, i, map, ctx, first);
-//             first = false;
-//         });
-//         ctx.closePath();
-//     });
-//     if (render.fill) { ctx.fill(); }
-//     if (render.stroke && style.lineWidth > 0) { ctx.stroke(); }
-// }
-
 module.exports = tu;
