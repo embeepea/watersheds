@@ -5,7 +5,7 @@ require('./libs/Leaflet.CanvasLayer/leaflet_canvas_layer.js');
 var topojson = require('topojson');
 var sprintf = require('sprintf');
 var tu = require('./topojson-utils.js');
-var URL = require('./url_utils.js');
+var URL = require('./url.js');
 
 var watersheds = {
     // are we running on a mobile device?:
