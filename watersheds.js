@@ -61,10 +61,6 @@
 	var URL = __webpack_require__(15);
 
 	var watersheds = {
-	    //dataJSONUrl: "data/data.json",
-	    dataJSONUrl: "http://wscdn.fernleafinteractive.com/data.json",
-	    watershedLocationService: "http://watershed-location-service.fernleafinteractive.com/huc12",
-	    topojsonDataUrlPrefix: "https://s3.amazonaws.com/data.watersheds.fernleafinteractive.com/mobile",
 	    isMobile: !!(/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)),
 
 	    geomByH12Code: {},
@@ -141,10 +137,10 @@
 	        }
 	    },
 
-	    loadData: function (doneFunc) {
+	    loadCompleteData: function (completeDataFileUrl, doneFunc) {
 	        var requests = [
 	            $.ajax({
-	                url: watersheds.dataJSONUrl,
+	                url: completeDataFileUrl,
 	                dataType: 'json',
 	                method: 'GET',
 	                success: function(data) {
@@ -296,7 +292,7 @@
 	        if (targetHucId !== "") {
 	            //targetHucId = "060101040210";
 	            $.ajax({
-	                url: sprintf("%s/%s.topojson", watersheds.topojsonDataUrlPrefix, targetHucId),
+	                url: sprintf("%s/%s.topojson", watersheds.mobileDataUrlPrefix, targetHucId),
 	                dataType: 'json',
 	                method: 'GET',
 	                success: function(topo) {
@@ -340,7 +336,7 @@
 	        if (div instanceof jQuery) {
 	            div = div[0];
 	        }
-	        var mbUrl = "https://api.tiles.mapbox.com/v4/{id}/{z}/{x}/{y}@2x.png?access_token=" + options.mapbox_token;
+	        var mbUrl = "https://api.tiles.mapbox.com/v4/{id}/{z}/{x}/{y}@2x.png?access_token=" + options.mapboxToken;
 	        var streets     = L.tileLayer(mbUrl, {id: 'mapbox.streets'}),
 	            satellite   = L.tileLayer(mbUrl, {id: 'mapbox.streets-satellite'}),
 	            hydro       = L.tileLayer("http://basemap.nationalmap.gov/arcgis/rest/services/USGSHydroNHD/MapServer/tile/{z}/{y}/{x}");
@@ -360,7 +356,7 @@
 	        var credits = L.control.attribution({
 	            position: "bottomright"
 	        }).addTo(watersheds.map);
-	        credits.addAttribution("© <a href='https://www.mapbox.com/map-feedback/'>Mapbox</a> © <a href='http://www.openstreetmap.org/copyright'>OpenStreetMap</a>");
+	        credits.addAttribution("&copy; <a href='https://www.mapbox.com/map-feedback/'>Mapbox</a> &copy; <a href='http://www.openstreetmap.org/copyright'>OpenStreetMap</a>");
 
 	        watersheds.where = function() {
 	            console.log(JSON.stringify({
@@ -394,13 +390,14 @@
 	        if (watersheds.isMobile) {
 	            $('#map').removeClass("dimmed");
 	            $('#splashmessage').hide();
+	            watersheds.mobileDataUrlPrefix = options.mobileDataUrlPrefix;
 	            watersheds.map.on('click', function(e) {
 	                var ll = e.latlng;
 	                watersheds.mobileLayers.huc12.clearLayers();
 	                watersheds.mobileLayers.upstream.clearLayers();
 	                watersheds.mobileLayers.downstream.clearLayers();
 	                $.ajax({
-	                    url: sprintf("%s/%f,%f", watersheds.watershedLocationService, ll.lng, ll.lat),
+	                    url: sprintf("%s/%f,%f", options.mobileWatershedLocationService, ll.lng, ll.lat),
 	                    dataType: 'text',
 	                    method: 'GET',
 	                    success: watersheds.setMobileTargetId
@@ -414,7 +411,7 @@
 	                watersheds.splashmessage("<center>Tap to see<br>watersheds</center>", 2000);
 	            }
 	        } else {
-	            watersheds.loadData(function() {
+	            watersheds.loadCompleteData(options.completeDataFileUrl, function() {
 	                watersheds.map.on('mousemove', function(e) {
 	                    if (!watersheds.frozen) {
 	                        var ll = e.latlng;
