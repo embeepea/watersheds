@@ -60,27 +60,186 @@
 	var tu = __webpack_require__(14);
 	var URL = __webpack_require__(15);
 
+	// A note about terminology:
+	// 
+
+	// Watershed regions in the Watershed Boundary Dataset
+	// (http://nhd.usgs.gov/wbd.html) are called "hydrologic units".  The
+	// dataset contains a hierarchy of 6 levels of these regions.  The
+	// regions in each level of the hierarchy exactly subdivide the
+	// regions in the previous level, and the regions in each level
+	// completely cover the US.  Each level is typically referred to by
+	// the number of digits in the region id code system it uses, which
+	// are 2, 4, 6, 8, 10, and 12.  This program only deals with the
+	// level-12 regions, which are the most detailed.
+	//
+	// In the code below, the term "HUC" stands for "hydrologic unit code"
+	// and is used to refer to a level 12 region and/or its 12-digit
+	// id code.  Sometimes the term HUC12 is used explicitly, but in all
+	// cases the only HUCs used here are the ones in level 12.
+
 	var watersheds = {
+	    // are we running on a mobile device?:
 	    isMobile: !!(/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)),
 
+	    // stores topojson HUC12 geom objects by id string:
 	    geomByH12Code: {},
+
+	    // stores topojson upstream geom objects by id string:
 	    upstreamGeomByH12Code: {},
-	    canvasLayer: null,
-	    frozen: false,
 
-	    pl: null,
+	    // when the display is "frozen", cursor movement does not trigger a change in
+	    // the currently displayed watershed
+	    isFrozen: false,
 
-	    splashmessage: function(text, showMs) {
-	        if (showMs === undefined) { showMs = 1000; }
+	    // Launch the appliation with the given options.  Options are:
+	    //   required:
+	    //     mapboxToken
+	    //     completeDataFileUrl
+	    //     mobileWatershedLocationService
+	    //     mobileDataUrlPrefix
+	    //   optional:
+	    //     mapCenter
+	    //     mapZoom
+	    // Note that the mapCenter and mapZoom values, even if specified, are always
+	    // overridden by values specified in the URL used to launch the application,
+	    // if that URL contains those values.
+	    launch: function(options) {
+	        $("#helpscreen").hide();
+	        $("#helpbutton").click(function() {
+	            watersheds.displayHelp();
+	        });
+	        var optionDefaults = {
+	            mapCenter: [39.232253141714885, -95.8447265625],
+	            mapZoom:   4
+	        };
+	        options = $.extend({}, optionDefaults, options);
+	        var div = options.div;
+	        if (div instanceof jQuery) {
+	            div = div[0];
+	        }
+	        var mbUrl = "https://api.tiles.mapbox.com/v4/{id}/{z}/{x}/{y}@2x.png?access_token=" + options.mapboxToken;
+	        var streets     = L.tileLayer(mbUrl, {id: 'mapbox.streets'}),
+	            satellite   = L.tileLayer(mbUrl, {id: 'mapbox.streets-satellite'}),
+	            hydro       = L.tileLayer("http://basemap.nationalmap.gov/arcgis/rest/services/USGSHydroNHD/MapServer/tile/{z}/{y}/{x}");
+	        var baseLayers = {
+	            "Streets": streets,
+	            "Satellite": satellite,
+	            "Hydrology": hydro
+	        };
+	        watersheds.map = L.map(div, {
+	            attributionControl: false,
+	            maxZoom: 14,
+	            minZoom: 2,
+	            layers: [streets],
+	            zoomControl: false,
+	            zoomAnimation: watersheds.isMobile   // should be true on mobile, false elsewhere
+	        });
+	        var credits = L.control.attribution({
+	            position: "bottomright"
+	        }).addTo(watersheds.map);
+	        credits.addAttribution("&copy; <a href='https://www.mapbox.com/map-feedback/'>Mapbox</a> &copy; <a href='http://www.openstreetmap.org/copyright'>OpenStreetMap</a>");
+
+	        watersheds.where = function() {
+	            console.log(JSON.stringify({
+	                center: watersheds.map.getCenter(),
+	                zoom: watersheds.map.getZoom()
+	            }));
+	        };
+	        if (!watersheds.isMobile) {
+	            // don't show zoom control on mobile devices
+	            L.control.zoom({ position: 'topright' }).addTo(watersheds.map);
+	        }
+	        watersheds.permalink = Permalink(URL({url: window.location.toString()}));
+	        if (!watersheds.permalink.haveZoom()) {
+	            watersheds.permalink.setZoom(options.mapZoom);
+	        }
+	        if (!watersheds.permalink.haveCenter()) {
+	            watersheds.permalink.setCenter(options.mapCenter);
+	        }
+	        watersheds.map.setView(watersheds.permalink.getCenter(), watersheds.permalink.getZoom());
+	        watersheds.map.on('move', function(e) {
+	            var c = watersheds.map.getCenter();
+	            watersheds.permalink.setCenter([c.lat,c.lng]);
+	            watersheds.permalink.setZoom(watersheds.map.getZoom());
+	            window.history.replaceState({}, "", watersheds.permalink.toString());
+	        });
+	        if (watersheds.isMobile) {
+	            watersheds.addMobileLayers();
+	        } else {
+	            watersheds.addCanvasLayer();
+	        }
+	        if (watersheds.isMobile) {
+	            $('#map').removeClass("dimmed");
+	            $('#splashmessage').hide();
+	            watersheds.mobileDataUrlPrefix = options.mobileDataUrlPrefix;
+	            watersheds.map.on('click', function(e) {
+	                var ll = e.latlng;
+	                watersheds.mobileLayers.huc12.clearLayers();
+	                watersheds.mobileLayers.upstream.clearLayers();
+	                watersheds.mobileLayers.downstream.clearLayers();
+	                $.ajax({
+	                    url: sprintf("%s/%f,%f", options.mobileWatershedLocationService, ll.lng, ll.lat),
+	                    dataType: 'text',
+	                    method: 'GET',
+	                    success: watersheds.setMobileTargetId
+	                });
+	            });
+	            if (watersheds.permalink.haveId()) {
+	                watersheds.setMobileTargetId(watersheds.permalink.getId());
+	                watersheds.splashmessage(watersheds.permalink.getId(), 1500);
+	                watersheds.splashmessage("<center>Tap to change<br>watersheds</center>", 2000);
+	            } else {
+	                watersheds.splashmessage("<center>Tap to see<br>watersheds</center>", 2000);
+	            }
+	        } else {
+	            watersheds.loadCompleteData(options.completeDataFileUrl, function() {
+	                watersheds.map.on('mousemove', function(e) {
+	                    if (!watersheds.isFrozen) {
+	                        var ll = e.latlng;
+	                        watersheds.setTargetHucFromLonLat([ll.lng, ll.lat]);
+	                    }
+	                    watersheds.canvasLayer.render();
+	                });
+	                watersheds.map.on('click', function(e) {
+	                    //if (watersheds.targetHuc) {
+	                    //    console.log(watersheds.targetHuc.id);
+	                    //}
+	                    watersheds.isFrozen = !watersheds.isFrozen;
+	                });
+	                if (watersheds.permalink.haveId()) {
+	                    if (watersheds.permalink.getId() in watersheds.geomByH12Code) {
+	                        watersheds.targetHuc = watersheds.geomByH12Code[watersheds.permalink.getId()];
+	                        watersheds.isFrozen = true;
+	                        watersheds.canvasLayer.render();
+	                    }
+	                    watersheds.splashmessage("<center>Click to change watersheds</center>", 1500);
+	                } else {
+	                    watersheds.splashmessage("<center>Move the cursor to<br>see watersheds</center>", 1500);
+	                }
+	                $('#map').hide();
+	                $('#map').removeClass("dimmed");
+	                $('#map').fadeIn(750);
+	            });
+	        }
+
+	    },
+
+	    // temporarily display a message in the splash dialog box
+	    splashmessage: function(text, showMS) {
+	        if (showMS === undefined) { showMS = 1000; }
 	        $('#splashmessage').html(text);
 	        $('#splashmessage').show();
 	        setTimeout(function() {
-	            $('#splashmessage').fadeOut(showMs, function() {
+	            $('#splashmessage').fadeOut(1000, function() {
 	                $('#splashmessage').hide();
 	            });
-	        }, 1000);
+	        }, showMS);
 	    },
 
+	    // Run the function f on the given HUC12 id, and then recursively
+	    // on its downstream HUC12 id.  Silently do nothing if an id
+	    // is its own downstream (tohuc).
 	    downstream: function(id, f) {
 	        if ((id in watersheds.tohuc) && (id === watersheds.tohuc[id])) { return; }
 	        f(id);
@@ -89,27 +248,35 @@
 	        }
 	    },
 
-	    renderPolygon: function (ctx, geom, topo) {
-	        geom.forEach(function(ring) {
+	    // Draw a topojson polygon on the given HTML5 canvas context.  This function
+	    // just takes care of the path traversal (beginPath, moveTo, lineTo, closePath)
+	    // part of the drawing.  It's up to the caller to make any relevant style settings
+	    // before calling this, and to call fill() or stroke() afterwards as desired.
+	    renderPolygon: function (ctx, poly, topo) {
+	        poly.forEach(function(ring) {
 	            var first = true;
 	            ring.forEach(function(i) {
-	                tu.walkarc(topo, i, watersheds.map, ctx, first);
+	                tu.walkArc(topo, i, watersheds.map, ctx, first);
 	                first = false;
 	            });
 	            ctx.closePath();
 	        });
 	    },
 
-	    renderPolygonExteriorRing: function (ctx, geom, topo) {
-	        var ring = geom[0];
+	    // Same as renderPolygon above, but only traverses the polygon's exterior
+	    // (first) ring:
+	    renderPolygonExteriorRing: function (ctx, poly, topo) {
+	        var ring = poly[0];
 	        var first = true;
 	        ring.forEach(function(i) {
-	            tu.walkarc(topo, i, watersheds.map, ctx, first);
+	            tu.walkArc(topo, i, watersheds.map, ctx, first);
 	            first = false;
 	        });
 	        ctx.closePath();
 	    },
 
+	    // Draw a topojson geom object (Polygon or MultiPolygon) on the given HTML5
+	    // canvas context, using the given style settings.
 	    renderHucWithStyle: function(ctx, geom, style) {
 	        if ('fillStyle' in style) {
 	            ctx.fillStyle   = style.fillStyle;
@@ -137,6 +304,8 @@
 	        }
 	    },
 
+	    // Load the complete data file that contains all the HUC12 regions, upstream polygons,
+	    // and region topology ("tohuc" mapping)
 	    loadCompleteData: function (completeDataFileUrl, doneFunc) {
 	        var requests = [
 	            $.ajax({
@@ -150,7 +319,7 @@
 	                        if (geom.id) {
 	                            watersheds.geomByH12Code[geom.id] = geom;
 	                        }
-	                        geom.bbox = tu.geom_bbox(geom, topo);
+	                        geom.bBox = tu.geomBBox(geom, topo);
 	                    });
 	                    topo.objects['upstream'].geometries.forEach(function(geom) {
 	                        if (geom.id) {
@@ -165,6 +334,9 @@
 	        ];
 	    },
 
+	    // The mobile version doesn't use HTML5 canvas, since it does do fast rendering.
+	    // Instead, it creates a few GeoJSON layers and modifies their contents in response
+	    // to taps.  This function creates those layers.
 	    addMobileLayers: function() {
 	        watersheds.mobileLayers = {
 	            huc12: L.geoJson(undefined, {
@@ -206,8 +378,9 @@
 	        watersheds.map.addLayer(watersheds.mobileLayers.downstream);
 	    },
 
-	     addCanvasLayer: function() {
-	         watersheds.canvasLayer = new (L.CanvasLayer.extend({
+	    // Create the HTML5 Canvas layer for super fast rendering on the desktop version
+	    addCanvasLayer: function() {
+	        watersheds.canvasLayer = new (L.CanvasLayer.extend({
 	            render: function() {
 	                var map = this._map;
 	                var canvas = this.getCanvas();
@@ -249,44 +422,27 @@
 	        watersheds.map.addLayer(watersheds.canvasLayer);
 	    },
 
-	    setTargetHuc: function(p) {
+	    // Set the target HUC based on a given p = [lon,lat] position.  The desktop version
+	    // calls this every time the mouse moves:
+	    setTargetHucFromLonLat: function(p) {
 	        watersheds.targetHuc = null;
 	        var bds = watersheds.map.getBounds();
 	        var extent = [[bds.getWest(), bds.getEast()],[bds.getSouth(),bds.getNorth()]];
 	        watersheds.h12Topo.objects['huc12'].geometries.forEach(function(geom) {
-	            if (tu.boxes_overlap(geom.bbox, extent)) {
-	                if (tu.box_contains_point(geom.bbox, p)) {
-	                    if (tu.point_in_geom2d(p, geom, watersheds.h12Topo)) {
+	            if (tu.boxesOverlap(geom.bBox, extent)) {
+	                if (tu.boxContainsPoint(geom.bBox, p)) {
+	                    if (tu.isPointInGeom(p, geom, watersheds.h12Topo)) {
 	                        watersheds.targetHuc = geom;
-	                        watersheds.pl.setId(geom.id);
-	                        window.history.replaceState({}, "", watersheds.pl.toString());
+	                        watersheds.permalink.setId(geom.id);
+	                        window.history.replaceState({}, "", watersheds.permalink.toString());
 	                    }
 	                }
 	            }
 	        });
 	    },
 
-	    displayHelp: function() {
-	        $.ajax({
-	            dataType: "text",
-	            method: "GET",
-	            url: watersheds.isMobile ? "help.mobile.html" : "help.desktop.html",
-	            success: function(text) {
-	                $("div.helpinset").html(text);
-	                if (watersheds.isMobile) {
-	                    $("div.helpinset").css({"font-size": "16pt"});
-	                }
-	                $("div.helpinset .closebutton").click(function() {
-	                    watersheds.hideHelp();
-	                });
-	                $("#helpscreen").show();
-	            }
-	        });
-	    },
-	    hideHelp: function() {
-	        $("#helpscreen").hide();
-	    },
-
+	    // Mobile version only: set the target HUC to a given id.  The mobile version calls this
+	    // after getting the id of the tapped location from the location service.
 	    setMobileTargetId: function(id) {
 	        var targetHucId = id.trim();
 	        if (targetHucId !== "") {
@@ -296,7 +452,7 @@
 	                dataType: 'json',
 	                method: 'GET',
 	                success: function(topo) {
-	                    watersheds.pl.setId(targetHucId);
+	                    watersheds.permalink.setId(targetHucId);
 	                    if (topo.objects.huc12) {
 	                        watersheds.mobileLayers.huc12.addData(
 	                            topojson.feature(topo,
@@ -316,134 +472,34 @@
 	        }
 	    },
 
-	    launch: function(options) {
-	        $("#helpscreen").hide();
-	        $("#helpbutton").click(function() {
-	            watersheds.displayHelp();
-	        });
-	        //var where = {"center":{"lat":36.04021586880111,"lng":-83.5455322265625},"zoom":9};
-	        var where = {"center":{"lat":39.232253141714885,"lng":-95.8447265625},"zoom":4};
-	        var defaults = {
-	            // // center of conus, zoomed out to see almost all of it:
-	            // map_center: [39.0,-99.0],
-	            // map_zoom:   5
-	            // NC:
-	            map_center: [where.center.lat, where.center.lng],
-	            map_zoom:   where.zoom
-	        };
-	        options = $.extend({}, defaults, options);
-	        var div = options.div;
-	        if (div instanceof jQuery) {
-	            div = div[0];
-	        }
-	        var mbUrl = "https://api.tiles.mapbox.com/v4/{id}/{z}/{x}/{y}@2x.png?access_token=" + options.mapboxToken;
-	        var streets     = L.tileLayer(mbUrl, {id: 'mapbox.streets'}),
-	            satellite   = L.tileLayer(mbUrl, {id: 'mapbox.streets-satellite'}),
-	            hydro       = L.tileLayer("http://basemap.nationalmap.gov/arcgis/rest/services/USGSHydroNHD/MapServer/tile/{z}/{y}/{x}");
-	        var baseLayers = {
-	            "Streets": streets,
-	            "Satellite": satellite,
-	            "Hydrology": hydro
-	        };
-	        watersheds.map = L.map(div, {
-	            attributionControl: false,
-	            maxZoom: 14,
-	            minZoom: 2,
-	            layers: [streets],
-	            zoomControl: false,
-	            zoomAnimation: watersheds.isMobile   // should be true on mobile, false elsewhere
-	        });
-	        var credits = L.control.attribution({
-	            position: "bottomright"
-	        }).addTo(watersheds.map);
-	        credits.addAttribution("&copy; <a href='https://www.mapbox.com/map-feedback/'>Mapbox</a> &copy; <a href='http://www.openstreetmap.org/copyright'>OpenStreetMap</a>");
-
-	        watersheds.where = function() {
-	            console.log(JSON.stringify({
-	                center: watersheds.map.getCenter(),
-	                zoom: watersheds.map.getZoom()
-	            }));
-	        };
-	        if (!watersheds.isMobile) {
-	            // don't show zoom control on mobile devices
-	            L.control.zoom({ position: 'topright' }).addTo(watersheds.map);
-	        }
-	        watersheds.pl = Permalink(URL({url: window.location.toString()}));
-	        if (!watersheds.pl.haveZoom()) {
-	            watersheds.pl.setZoom(options.map_zoom);
-	        }
-	        if (!watersheds.pl.haveCenter()) {
-	            watersheds.pl.setCenter(options.map_center);
-	        }
-	        watersheds.map.setView(watersheds.pl.getCenter(), watersheds.pl.getZoom());
-	        watersheds.map.on('move', function(e) {
-	            var c = watersheds.map.getCenter();
-	            watersheds.pl.setCenter([c.lat,c.lng]);
-	            watersheds.pl.setZoom(watersheds.map.getZoom());
-	            window.history.replaceState({}, "", watersheds.pl.toString());
-	        });
-	        if (watersheds.isMobile) {
-	            watersheds.addMobileLayers();
-	        } else {
-	            watersheds.addCanvasLayer();
-	        }
-	        if (watersheds.isMobile) {
-	            $('#map').removeClass("dimmed");
-	            $('#splashmessage').hide();
-	            watersheds.mobileDataUrlPrefix = options.mobileDataUrlPrefix;
-	            watersheds.map.on('click', function(e) {
-	                var ll = e.latlng;
-	                watersheds.mobileLayers.huc12.clearLayers();
-	                watersheds.mobileLayers.upstream.clearLayers();
-	                watersheds.mobileLayers.downstream.clearLayers();
-	                $.ajax({
-	                    url: sprintf("%s/%f,%f", options.mobileWatershedLocationService, ll.lng, ll.lat),
-	                    dataType: 'text',
-	                    method: 'GET',
-	                    success: watersheds.setMobileTargetId
-	                });
-	            });
-	            if (watersheds.pl.haveId()) {
-	                watersheds.setMobileTargetId(watersheds.pl.getId());
-	                watersheds.splashmessage(watersheds.pl.getId(), 1500);
-	                watersheds.splashmessage("<center>Tap to change<br>watersheds</center>", 2000);
-	            } else {
-	                watersheds.splashmessage("<center>Tap to see<br>watersheds</center>", 2000);
-	            }
-	        } else {
-	            watersheds.loadCompleteData(options.completeDataFileUrl, function() {
-	                watersheds.map.on('mousemove', function(e) {
-	                    if (!watersheds.frozen) {
-	                        var ll = e.latlng;
-	                        watersheds.setTargetHuc([ll.lng, ll.lat]);
-	                    }
-	                    watersheds.canvasLayer.render();
-	                });
-	                watersheds.map.on('click', function(e) {
-	                    //if (watersheds.targetHuc) {
-	                    //    console.log(watersheds.targetHuc.id);
-	                    //}
-	                    watersheds.frozen = !watersheds.frozen;
-	                });
-	                if (watersheds.pl.haveId()) {
-	                    if (watersheds.pl.getId() in watersheds.geomByH12Code) {
-	                        watersheds.targetHuc = watersheds.geomByH12Code[watersheds.pl.getId()];
-	                        watersheds.frozen = true;
-	                        watersheds.canvasLayer.render();
-	                    }
-	                    watersheds.splashmessage("<center>Click to change watersheds</center>", 1500);
-	                } else {
-	                    watersheds.splashmessage("<center>Move the cursor to<br>see watersheds</center>", 1500);
+	    // display the help screen
+	    displayHelp: function() {
+	        $.ajax({
+	            dataType: "text",
+	            method: "GET",
+	            url: watersheds.isMobile ? "help.mobile.html" : "help.desktop.html",
+	            success: function(text) {
+	                $("div.helpinset").html(text);
+	                if (watersheds.isMobile) {
+	                    $("div.helpinset").css({"font-size": "16pt"});
 	                }
-	                $('#map').hide();
-	                $('#map').removeClass("dimmed");
-	                $('#map').fadeIn(750);
-	            });
-	        }
+	                $("div.helpinset .closebutton").click(function() {
+	                    watersheds.hideHelp();
+	                });
+	                $("#helpscreen").show();
+	            }
+	        });
+	    },
 
+	    // hide the help screen
+	    hideHelp: function() {
+	        $("#helpscreen").hide();
 	    }
+
 	};
 
+	// A utility object for constructing and extracting information from the
+	// application URL:
 	function Permalink(url) {
 	    var center = null, zoom = null, id = null;
 	    if ('zoom' in url.params) {
@@ -477,7 +533,6 @@
 	        }
 	    };
 	}
-
 
 	window.watersheds = watersheds;
 
@@ -1944,26 +1999,43 @@
 /* 14 */
 /***/ function(module, exports) {
 
+	// This file contains a collection of functions that are useful for dealing
+	// with topojson data, including specifically rendering topojson objects
+	// on an HTML5 canvas.
+
+	// See https://github.com/mbostock/topojson/wiki for detailed information
+	// about the topojson data format.
+	//
+	// Note that this code does not use the actual topojson library -- it just
+	// makes use of the data format.
+
 	var tu = {};
 
+	// construct an HTML rgba string from values
 	function rgba(r,g,b,a) {
 	    return "rgba(" + r + "," + g + "," + b + "," + a + ")";
 	}
 	tu.rgba = rgba;
+
+	// construct an HTML rgb string from values
 	function rgb(r,g,b) {
 	    return "rgb(" + r + "," + g + "," + b + ")";
 	}
 	tu.rgb = rgb;
 
-	function ones_complement(x) {
-	    return -x - 1;
+	// Yes it might run faster if I simply wrote ~x inline in the code, but
+	// the difference if any would be minimal, and I prefer the explicit
+	// reminder that ~ means ones complement:
+	function onesComplement(x) {
+	    return ~x;  // same as -x-1, but faster
 	}
 
-	function arc_index(i) {
-	    if (i < 0) { return ones_complement(i); }
+	function arcIndex(i) {
+	    if (i < 0) { return onesComplement(i); }
 	    return i;
 	}
 
+	// apply a topojson transform to a point
 	function transformPoint(topology, position) {
 	  position = position.slice();
 	  position[0] = position[0] * topology.transform.scale[0] + topology.transform.translate[0];
@@ -1971,6 +2043,7 @@
 	  return position;
 	};
 
+	// decode a topojson arc; returns a nested array of lon/lat coordinates
 	function decodeArc(topology, arc) {
 	  var x = 0, y = 0;
 	  return arc.map(function(position) {
@@ -1982,13 +2055,15 @@
 	}
 	tu.decodeArc = decodeArc;
 
-	function walkarc(topo, i, map, ctx, first) {
+	// Make the appropriate sequence of HTML5 canvas context moveTo() and lineTo()
+	// calls for tracing out the i-th arc in a topojson object.
+	function walkArc(topo, i, map, ctx, first) {
 	    var j, k, reversed, p, pp;
 	    if (i >= 0) {
 	        j = i;
 	        reversed = false;
 	    } else {
-	        j = ones_complement(i);
+	        j = onesComplement(i);
 	        reversed = true;
 	    }
 	    var arc = topo.decodedArcs[j];
@@ -2003,8 +2078,10 @@
 	        ctx.lineTo(pp.x, pp.y);
 	    }
 	}
-	tu.walkarc = walkarc;
+	tu.walkArc = walkArc;
 
+	// depth-first traversal of a nested array of numbers: run the function
+	//   f on every number in the array, recursing depth-first.
 	function dfs(arr, f) {
 	    var i;
 	    for (i=0; i<arr.length; ++i) {
@@ -2016,10 +2093,11 @@
 	    }
 	}
 
-	function geom_bbox(g, topo) {
+	// compute and return the bounding box for a topojson geom object g
+	function geomBBox(g, topo) {
 	    var bbox = [[null,null],[null,null]];
 	    dfs(g.arcs, function(i) {
-	        var arc = topo.decodedArcs[(i >= 0) ? i : ones_complement(i)];
+	        var arc = topo.decodedArcs[(i >= 0) ? i : onesComplement(i)];
 	        arc.forEach(function(p) {
 	            if (bbox[0][0] === null || p[0] < bbox[0][0]) { bbox[0][0] = p[0]; }
 	            if (bbox[0][1] === null || p[0] > bbox[0][1]) { bbox[0][1] = p[0]; }
@@ -2030,9 +2108,11 @@
 	    return bbox;
 	}
 
-	tu.geom_bbox = geom_bbox;
+	tu.geomBBox = geomBBox;
 
-	function boxes_overlap(a,b) {
+
+	// test whether two boxes overlap
+	function boxesOverlap(a,b) {
 	    return !(((a[0][0] < b[0][0]) && (a[0][1] < b[0][0]))
 	             ||
 	             ((a[0][0] > b[0][1]) && (a[0][1] > b[0][1]))
@@ -2041,38 +2121,39 @@
 	             ||
 	             ((a[1][0] > b[1][1]) && (a[1][1] > b[1][1])));
 	}
-	tu.boxes_overlap = boxes_overlap;
+	tu.boxesOverlap = boxesOverlap;
 
-	function box_contains_point(box,p) {
+	// test whether a box contains a point
+	function boxContainsPoint(box,p) {
 	    return (p[0] >= box[0][0]) && (p[0] <= box[0][1]) && (p[1] >= box[1][0]) && (p[1] <= box[1][1]);
 	}
-	tu.box_contains_point = box_contains_point;
+	tu.boxContainsPoint = boxContainsPoint;
 
 	// A 'seq' is an object that produces a sequence of items (aka 'iterator').
 	// It has a 'next' method which gives the next item, and a 'hasNext' method
 	// that says whether there are any more items.
 
 	// Here's an 'emtpy' seq object:
-	var empty_seq = {
+	var emptySeq = {
 	    next: function() { return undefined; },
 	    hasNext: function() { return false; }
 	};
 
-	// A 'varray' is an object that acts like an arc in the 'arcs' array,
+	// A 'vArray' is an object that acts like an arc in the 'arcs' array,
 	// in the sense that it consists of an array of vertices.
 	// It has one function and one property:
 	//   get(j): return the j-th vertex of the arc
 	//   length: the number of vertices in the arc
 	// The input argument i indicates which arc in the 'arcs' array to use;
 	// negative values of i mean the ones-complement position in reverse order
-	function varray(i, arcs) {
+	function vArray(i, arcs) {
 	    var reversed, a, len;
 	    if (i >= 0) {
 	        reversed = false;
 	        a = arcs[i];
 	    } else {
 	        reversed = true;
-	        a = arcs[ones_complement(i)];
+	        a = arcs[onesComplement(i)];
 	    }
 	    len = a.length;
 	    return {
@@ -2088,58 +2169,58 @@
 	// A "degenerate" arc is one with just a single vertex.
 	// A "nondegenerate" arc is one with more than one vertex.
 
-	// Return a sequence of varrays for the nondegenerate arcs in a ring, unless the ring only
-	// contains degenerate arcs, in which case return a sequence containing a varray for just
+	// Return a sequence of vArrays for the nondegenerate arcs in a ring, unless the ring only
+	// contains degenerate arcs, in which case return a sequence containing a vArray for just
 	// the first degenerate arc from the ring.  Ignores all empty arcs.
-	function ring_varray_seq(ring, arcs) {
+	function ringVArraySeq(ring, arcs) {
 	    // ring = [432, 143, 223, ..., 4323]   (array of integers indices into the 'arcs' array)
-	    var varrays = ring.map(function(i) { return varray(i,arcs); });
-	    var nonempty_varrays = varrays.filter(function(va) { return va.length > 0; });
-	    if (nonempty_varrays.length === 0) { return empty_seq; }
-	    var nondegenerate_varrays = nonempty_varrays.filter(function(va) { return va.length > 1; });
+	    var vArrays = ring.map(function(i) { return vArray(i,arcs); });
+	    var nonemptyVArrays = vArrays.filter(function(va) { return va.length > 0; });
+	    if (nonemptyVArrays.length === 0) { return emptySeq; }
+	    var nondegenerateVArrays = nonemptyVArrays.filter(function(va) { return va.length > 1; });
 	    // remove degenerate arcs from ring, or set it an array of the first degenerate one
 	    // if they are all degenerate:
-	    varrays = (nondegenerate_varrays.length > 0) ? nondegenerate_varrays : [nonempty_varrays[0]];
+	    vArrays = (nondegenerateVArrays.length > 0) ? nondegenerateVArrays : [nonemptyVArrays[0]];
 	    var ri = -1;
 	    return {
 	        next: function() {
 	            if (this.hasNext()) {
 	                ++ri;
-	                return varrays[ri];
+	                return vArrays[ri];
 	            }
 	            return undefined;
 	        },
 	        hasNext: function() {
-	            return (ri+1 < varrays.length);
+	            return (ri+1 < vArrays.length);
 	        }
 	    };
 	}
 
 	// Return a seq of the vertices in a ring; each vertex occurs in the seq exactly once.
 	// (Closing vertices are omitted --- the last vertex in the seq is NOT the same as the first.)
-	function ring_vertex_seq(ring, arcs) {
-	    var arc_seq = ring_varray_seq(ring, arcs);
-	    var current_varray = arc_seq.next();
+	function ringVertexSeq(ring, arcs) {
+	    var arcSeq = ringVArraySeq(ring, arcs);
+	    var currentVArray = arcSeq.next();
 	    var ai = -1;
-	    // the 'next' vertex in the seq is the one at position ai+1 in the current varray (arc),
+	    // the 'next' vertex in the seq is the one at position ai+1 in the current vArray (arc),
 	    // unless position ai+1 is the last vertex of that arc (in which case we advance
 	    //   to the next arc if there is one)
 	    // or unless there is no current arc
 	    return {
 	        next: function() {
-	            if (current_varray === undefined) { return undefined; }
+	            if (currentVArray === undefined) { return undefined; }
 	            ++ai;
-	            if (ai < current_varray.length-1) {
-	                return current_varray.get(ai);
+	            if (ai < currentVArray.length-1) {
+	                return currentVArray.get(ai);
 	            }
-	            current_varray = arc_seq.next();
+	            currentVArray = arcSeq.next();
 	            ai = -1;
 	            return this.next();
 	        },
 	        hasNext: function() {
-	            if (current_varray === undefined) { return false; }
-	            if (ai < current_varray.length-2) { return true; }
-	            return arc_seq.hasNext();
+	            if (currentVArray === undefined) { return false; }
+	            if (ai < currentVArray.length-2) { return true; }
+	            return arcSeq.hasNext();
 	        }
 	    };
 	}
@@ -2147,7 +2228,7 @@
 	// s is a 'seq' object containing [s0, s1, s2, ..., sN]
 	// return a new seq object which contains [s0, s1, s2, ..., sN, s0]
 	// i.e. tacks a copy of s0 onto the end
-	function close_seq(s) {
+	function closeSeq(s) {
 	    var held = undefined;
 	    var first = true;
 	    var done = !s.hasNext();
@@ -2177,8 +2258,8 @@
 	//   meaning the ones-complement position in reverse order
 	// 'arcs' is an array giving the actual arcs; each element of arcs is an array
 	//   of vertices
-	function point_in_ring(v, ring, arcs) {
-	    var vs = close_seq(ring_vertex_seq(ring, arcs));
+	function isPointInRing(v, ring, arcs) {
+	    var vs = closeSeq(ringVertexSeq(ring, arcs));
 	    // v = [x,y]
 	    // vs = [[x0,y0],[x1,y1],...,[xn,yn]] (but it's a seq, not an array)
 	    if (!vs.hasNext()) { return false; }
@@ -2206,23 +2287,23 @@
 
 	// Test whether a point is in a polygon defined by an array of rings; the first
 	// ring is the polygon exterior, and any subsequent rings are holes.
-	function point_in_polygon(v, rings, arcs) {
+	function isPointInPolygon(v, rings, arcs) {
 	    if (rings.length === 0) { return false; }
 	    // v must be in exterior ring
-	    if (!point_in_ring(v, rings[0], arcs)) { return false; }
+	    if (!isPointInRing(v, rings[0], arcs)) { return false; }
 	    // and must not be in any interior ring
 	    var i;
 	    for (i=1; i<rings.length; ++i) {
-	        if (point_in_ring(v, rings[i], arcs)) { return false; }
+	        if (isPointInRing(v, rings[i], arcs)) { return false; }
 	    }
 	    return true;
 	}
 
 	// Test whether a point is in a Polygon or MultiPolygon
-	function point_in_geom2d(p, geom, topo) {
+	function isPointInGeom(p, geom, topo) {
 	    // if geom is a single polygon, check if p is in it:
 	    if (geom.type === "Polygon") {
-	        if (point_in_polygon(p, geom.arcs, topo.decodedArcs)) {
+	        if (isPointInPolygon(p, geom.arcs, topo.decodedArcs)) {
 	            return true;
 	        }
 	    }
@@ -2231,184 +2312,34 @@
 	    if (geom.type === "MultiPolygon") {
 	        var j;
 	        for (j=0; j<geom.arcs.length; ++j) {
-	            if (point_in_polygon(p, geom.arcs[j], topo.decodedArcs)) {
+	            if (isPointInPolygon(p, geom.arcs[j], topo.decodedArcs)) {
 	                return true;
 	            }
 	        }
 	    }
 	    return false;
 	}
-	tu.point_in_geom2d = point_in_geom2d;
+	tu.isPointInGeom = isPointInGeom;
 
-	function renderPolygon(ctx, map, arcs, rings, style, render) {
-	    Object.keys(style).forEach(function(attr) {
-	        ctx[attr] = style[attr];
-	    });
-	    render = render || { fill: true, stroke: true };
-	    ctx.beginPath();
-	    rings.forEach(function(ring) {
-	        var first = true;
-	        ring.forEach(function(i) {
-	            walkarc(arcs, i, map, ctx, first);
-	            first = false;
-	        });
-	        ctx.closePath();
-	    });
-	    if (render.fill) { ctx.fill(); }
-	    if (render.stroke && style.lineWidth > 0) { ctx.stroke(); }
-	}
+	// function renderPolygon(ctx, map, arcs, rings, style, render) {
+	//     Object.keys(style).forEach(function(attr) {
+	//         ctx[attr] = style[attr];
+	//     });
+	//     render = render || { fill: true, stroke: true };
+	//     ctx.beginPath();
+	//     rings.forEach(function(ring) {
+	//         var first = true;
+	//         ring.forEach(function(i) {
+	//             walkArc(arcs, i, map, ctx, first);
+	//             first = false;
+	//         });
+	//         ctx.closePath();
+	//     });
+	//     if (render.fill) { ctx.fill(); }
+	//     if (render.stroke && style.lineWidth > 0) { ctx.stroke(); }
+	// }
 
 	module.exports = tu;
-
-	/////////////////////////////////////////////////////////////////////////////////////
-
-	topojsonCanvasLayer = function(map, topo, options) {
-
-	    var arcs = topo.arcs.map(function(arc) { return decodeArc(topo, arc); });
-	    // compute bbox for each geom:
-	    Object.keys(topo.objects).forEach(function(obj_name) {
-	        topo.objects[obj_name].geometries.forEach(function(geom) {
-	            geom.bbox = geom_bbox(geom, arcs);
-	        });
-	    });
-
-
-	    map.on('mousemove', function(e) {
-	        var ll = e.latlng;
-	        var p = [ll.lng, ll.lat];
-	        var object_name = options.zoomLevelToClickLayerName(map.getZoom());
-	        var geoms, i, geom;
-	        if (object_name) {
-	            geoms = topo.objects[object_name].geometries;
-	            for (i=0; i<geoms.length; ++i) {
-	                geom = geoms[i];
-	                // if p is not in geom's bbox, skip it
-	                if (!box_contains_point(geom.bbox, p)) { continue; }
-	                // if geom is a single polygon, check if p is in it:
-	                if (geom.type === "Polygon") {
-	                    if (point_in_polygon(p, geom.arcs, arcs)) {
-	                        options.onMove(geom, p);
-	                        return;
-	                    }
-	                }
-	                // if geom is a single polygon, check if p is in any
-	                // of the polygons it contains
-	                if (geom.type === "MultiPolygon") {
-	                    var j;
-	                    for (j=0; j<geom.arcs.length; ++j) {
-	                        if (point_in_polygon(p, geom.arcs[j], arcs)) {
-	                            options.onMove(geom, p);
-	                            return;
-	                        }
-	                    }
-	                }
-	            }
-	        }
-	    });
-
-
-
-
-	    map.on('click', function(e) {
-	        var ll = e.latlng;
-	        var p = [ll.lng, ll.lat];
-	        var object_name = options.zoomLevelToClickLayerName(map.getZoom());
-	        var geoms, i, geom;
-	        if (object_name) {
-	            geoms = topo.objects[object_name].geometries;
-	            for (i=0; i<geoms.length; ++i) {
-	                geom = geoms[i];
-	                // if p is not in geom's bbox, skip it
-	                if (!box_contains_point(geom.bbox, p)) { continue; }
-	                // if geom is a single polygon, check if p is in it:
-	                if (geom.type === "Polygon") {
-	                    if (point_in_polygon(p, geom.arcs, arcs)) {
-	                        options.onClick(geom, p);
-	                        return;
-	                    }
-	                }
-	                // if geom is a single polygon, check if p is in any
-	                // of the polygons it contains
-	                if (geom.type === "MultiPolygon") {
-	// 06010105
-	                    var j;
-	                    for (j=0; j<geom.arcs.length; ++j) {
-	                        if (point_in_polygon(p, geom.arcs[j], arcs)) {
-	                            options.onClick(geom, p);
-	                            return;
-	                        }
-	                    }
-	                }
-	            }
-	        }
-	    });
-
-	    var CanvasLayer = L.CanvasLayer.extend({
-	        render: function() {
-	            var map = this._map;
-	            var canvas = this.getCanvas();
-	            var ctx = canvas.getContext('2d');
-	            // clear canvas
-	            ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-	            // an 'arc' is a JS array of vertices (each vertex being a JS [x,y] array)
-	            // 'arcs' is an array of arcs, computed above
-	            // a 'ring' is a JS array of indices into the 'arcs' array; negative indices
-	            //     indicate the ones-complement index in reverse order
-	            // for a Polygon, the 'arcs' property is an array of rings; the first is the
-	            //     polygon exterior, any additional ones are holes
-	            // for a MultiPolygon, the 'arcs' property is an array where each element is
-	            //     an array of rings representing a single polygon (possibly with holes)
-
-	            var bds = map.getBounds();
-	            var extent = [[bds.getWest(), bds.getEast()],[bds.getSouth(),bds.getNorth()]];
-
-
-	            var layerStyleFunctions = options.zoomLevelToLayerStyleFunctions(map.getZoom());
-
-	            var selectedPolygons = [];
-
-	            Object.keys(layerStyleFunctions).forEach(function(object_name) {
-	                var styleFunction = layerStyleFunctions[object_name];
-	                topo.objects[object_name].geometries.forEach(function(geom) {
-	                    var style = styleFunction(geom);
-	                    if (!style) { return; }
-	                    // only draw geoms whose bbox overlaps the current map extent
-	                    if (boxes_overlap(geom.bbox, extent)) {
-	                        if (geom.type === "Polygon") {
-	                            // geom.arcs is an array of rings representing a single polygon
-	                            renderPolygon(ctx, map, arcs, geom.arcs, style);
-	/*
-	                            if (geom.selected) {
-	                                selectedPolygons.push({polygon: geom.arcs, styleFunction: styleFunction(geom)});
-	                            }
-	*/
-	                        } else if (geom.type === "MultiPolygon") {
-	                            // geom.arcs is an array of polygons as above
-	                            geom.arcs.forEach(function(polygon) {
-	                                renderPolygon(ctx, map, arcs, polygon, style);
-	/*
-	                                if (geom.selected) {
-	                                    selectedPolygons.push({polygon: polygon, styleFunction: styleFunction(geom)});
-	                                }
-	*/
-	                            });
-	                        }
-	                    }
-	                });
-	            });
-
-	/*
-	            // redraw boundaries of selected geoms:
-	            selectedPolygons.forEach(function(polygon) {
-	                renderPolygon(ctx, map, arcs, polygon.polygon, polygon.styleFunction, {stroke: true});
-	            });
-	*/
-
-	        }
-	    });
-	    return new CanvasLayer();
-	};
 
 
 /***/ },

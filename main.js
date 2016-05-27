@@ -7,6 +7,24 @@ var sprintf = require('sprintf');
 var tu = require('./topojson-utils.js');
 var URL = require('./url.js');
 
+// A note about terminology:
+// 
+
+// Watershed regions in the Watershed Boundary Dataset
+// (http://nhd.usgs.gov/wbd.html) are called "hydrologic units".  The
+// dataset contains a hierarchy of 6 levels of these regions.  The
+// regions in each level of the hierarchy exactly subdivide the
+// regions in the previous level, and the regions in each level
+// completely cover the US.  Each level is typically referred to by
+// the number of digits in the region id code system it uses, which
+// are 2, 4, 6, 8, 10, and 12.  This program only deals with the
+// level-12 regions, which are the most detailed.
+//
+// In the code below, the term "HUC" stands for "hydrologic unit code"
+// and is used to refer to a level 12 region and/or its 12-digit
+// id code.  Sometimes the term HUC12 is used explicitly, but in all
+// cases the only HUCs used here are the ones in level 12.
+
 var watersheds = {
     // are we running on a mobile device?:
     isMobile: !!(/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)),
@@ -21,17 +39,28 @@ var watersheds = {
     // the currently displayed watershed
     isFrozen: false,
 
+    // Launch the appliation with the given options.  Options are:
+    //   required:
+    //     mapboxToken
+    //     completeDataFileUrl
+    //     mobileWatershedLocationService
+    //     mobileDataUrlPrefix
+    //   optional:
+    //     mapCenter
+    //     mapZoom
+    // Note that the mapCenter and mapZoom values, even if specified, are always
+    // overridden by values specified in the URL used to launch the application,
+    // if that URL contains those values.
     launch: function(options) {
         $("#helpscreen").hide();
         $("#helpbutton").click(function() {
             watersheds.displayHelp();
         });
-        var where = {"center":{"lat":39.232253141714885,"lng":-95.8447265625},"zoom":4};
-        var defaults = {
-            mapCenter: [where.center.lat, where.center.lng],
-            mapZoom:   where.zoom
+        var optionDefaults = {
+            mapCenter: [39.232253141714885, -95.8447265625],
+            mapZoom:   4
         };
-        options = $.extend({}, defaults, options);
+        options = $.extend({}, optionDefaults, options);
         var div = options.div;
         if (div instanceof jQuery) {
             div = div[0];
@@ -115,7 +144,7 @@ var watersheds = {
                 watersheds.map.on('mousemove', function(e) {
                     if (!watersheds.isFrozen) {
                         var ll = e.latlng;
-                        watersheds.setTargetHuc([ll.lng, ll.lat]);
+                        watersheds.setTargetHucFromLonLat([ll.lng, ll.lat]);
                     }
                     watersheds.canvasLayer.render();
                 });
@@ -143,17 +172,21 @@ var watersheds = {
 
     },
 
-    splashmessage: function(text, showMs) {
-        if (showMs === undefined) { showMs = 1000; }
+    // temporarily display a message in the splash dialog box
+    splashmessage: function(text, showMS) {
+        if (showMS === undefined) { showMS = 1000; }
         $('#splashmessage').html(text);
         $('#splashmessage').show();
         setTimeout(function() {
-            $('#splashmessage').fadeOut(showMs, function() {
+            $('#splashmessage').fadeOut(1000, function() {
                 $('#splashmessage').hide();
             });
-        }, 1000);
+        }, showMS);
     },
 
+    // Run the function f on the given HUC12 id, and then recursively
+    // on its downstream HUC12 id.  Silently do nothing if an id
+    // is its own downstream (tohuc).
     downstream: function(id, f) {
         if ((id in watersheds.tohuc) && (id === watersheds.tohuc[id])) { return; }
         f(id);
@@ -162,8 +195,12 @@ var watersheds = {
         }
     },
 
-    renderPolygon: function (ctx, geom, topo) {
-        geom.forEach(function(ring) {
+    // Draw a topojson polygon on the given HTML5 canvas context.  This function
+    // just takes care of the path traversal (beginPath, moveTo, lineTo, closePath)
+    // part of the drawing.  It's up to the caller to make any relevant style settings
+    // before calling this, and to call fill() or stroke() afterwards as desired.
+    renderPolygon: function (ctx, poly, topo) {
+        poly.forEach(function(ring) {
             var first = true;
             ring.forEach(function(i) {
                 tu.walkArc(topo, i, watersheds.map, ctx, first);
@@ -173,8 +210,10 @@ var watersheds = {
         });
     },
 
-    renderPolygonExteriorRing: function (ctx, geom, topo) {
-        var ring = geom[0];
+    // Same as renderPolygon above, but only traverses the polygon's exterior
+    // (first) ring:
+    renderPolygonExteriorRing: function (ctx, poly, topo) {
+        var ring = poly[0];
         var first = true;
         ring.forEach(function(i) {
             tu.walkArc(topo, i, watersheds.map, ctx, first);
@@ -183,6 +222,8 @@ var watersheds = {
         ctx.closePath();
     },
 
+    // Draw a topojson geom object (Polygon or MultiPolygon) on the given HTML5
+    // canvas context, using the given style settings.
     renderHucWithStyle: function(ctx, geom, style) {
         if ('fillStyle' in style) {
             ctx.fillStyle   = style.fillStyle;
@@ -210,6 +251,8 @@ var watersheds = {
         }
     },
 
+    // Load the complete data file that contains all the HUC12 regions, upstream polygons,
+    // and region topology ("tohuc" mapping)
     loadCompleteData: function (completeDataFileUrl, doneFunc) {
         var requests = [
             $.ajax({
@@ -238,6 +281,9 @@ var watersheds = {
         ];
     },
 
+    // The mobile version doesn't use HTML5 canvas, since it does do fast rendering.
+    // Instead, it creates a few GeoJSON layers and modifies their contents in response
+    // to taps.  This function creates those layers.
     addMobileLayers: function() {
         watersheds.mobileLayers = {
             huc12: L.geoJson(undefined, {
@@ -279,8 +325,9 @@ var watersheds = {
         watersheds.map.addLayer(watersheds.mobileLayers.downstream);
     },
 
-     addCanvasLayer: function() {
-         watersheds.canvasLayer = new (L.CanvasLayer.extend({
+    // Create the HTML5 Canvas layer for super fast rendering on the desktop version
+    addCanvasLayer: function() {
+        watersheds.canvasLayer = new (L.CanvasLayer.extend({
             render: function() {
                 var map = this._map;
                 var canvas = this.getCanvas();
@@ -322,7 +369,9 @@ var watersheds = {
         watersheds.map.addLayer(watersheds.canvasLayer);
     },
 
-    setTargetHuc: function(p) {
+    // Set the target HUC based on a given p = [lon,lat] position.  The desktop version
+    // calls this every time the mouse moves:
+    setTargetHucFromLonLat: function(p) {
         watersheds.targetHuc = null;
         var bds = watersheds.map.getBounds();
         var extent = [[bds.getWest(), bds.getEast()],[bds.getSouth(),bds.getNorth()]];
@@ -339,27 +388,8 @@ var watersheds = {
         });
     },
 
-    displayHelp: function() {
-        $.ajax({
-            dataType: "text",
-            method: "GET",
-            url: watersheds.isMobile ? "help.mobile.html" : "help.desktop.html",
-            success: function(text) {
-                $("div.helpinset").html(text);
-                if (watersheds.isMobile) {
-                    $("div.helpinset").css({"font-size": "16pt"});
-                }
-                $("div.helpinset .closebutton").click(function() {
-                    watersheds.hideHelp();
-                });
-                $("#helpscreen").show();
-            }
-        });
-    },
-    hideHelp: function() {
-        $("#helpscreen").hide();
-    },
-
+    // Mobile version only: set the target HUC to a given id.  The mobile version calls this
+    // after getting the id of the tapped location from the location service.
     setMobileTargetId: function(id) {
         var targetHucId = id.trim();
         if (targetHucId !== "") {
@@ -387,10 +417,36 @@ var watersheds = {
                     }
                 }});
         }
+    },
+
+    // display the help screen
+    displayHelp: function() {
+        $.ajax({
+            dataType: "text",
+            method: "GET",
+            url: watersheds.isMobile ? "help.mobile.html" : "help.desktop.html",
+            success: function(text) {
+                $("div.helpinset").html(text);
+                if (watersheds.isMobile) {
+                    $("div.helpinset").css({"font-size": "16pt"});
+                }
+                $("div.helpinset .closebutton").click(function() {
+                    watersheds.hideHelp();
+                });
+                $("#helpscreen").show();
+            }
+        });
+    },
+
+    // hide the help screen
+    hideHelp: function() {
+        $("#helpscreen").hide();
     }
 
 };
 
+// A utility object for constructing and extracting information from the
+// application URL:
 function Permalink(url) {
     var center = null, zoom = null, id = null;
     if ('zoom' in url.params) {
@@ -424,6 +480,5 @@ function Permalink(url) {
         }
     };
 }
-
 
 window.watersheds = watersheds;

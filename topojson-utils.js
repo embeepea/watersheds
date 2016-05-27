@@ -1,15 +1,30 @@
+// This file contains a collection of functions that are useful for dealing
+// with topojson data, including specifically rendering topojson objects
+// on an HTML5 canvas.
+
+// See https://github.com/mbostock/topojson/wiki for detailed information
+// about the topojson data format.
+//
+// Note that this code does not use the actual topojson library -- it just
+// makes use of the data format.
+
 var tu = {};
 
+// construct an HTML rgba string from values
 function rgba(r,g,b,a) {
     return "rgba(" + r + "," + g + "," + b + "," + a + ")";
 }
 tu.rgba = rgba;
 
+// construct an HTML rgb string from values
 function rgb(r,g,b) {
     return "rgb(" + r + "," + g + "," + b + ")";
 }
 tu.rgb = rgb;
 
+// Yes it might run faster if I simply wrote ~x inline in the code, but
+// the difference if any would be minimal, and I prefer the explicit
+// reminder that ~ means ones complement:
 function onesComplement(x) {
     return ~x;  // same as -x-1, but faster
 }
@@ -19,6 +34,7 @@ function arcIndex(i) {
     return i;
 }
 
+// apply a topojson transform to a point
 function transformPoint(topology, position) {
   position = position.slice();
   position[0] = position[0] * topology.transform.scale[0] + topology.transform.translate[0];
@@ -26,6 +42,7 @@ function transformPoint(topology, position) {
   return position;
 };
 
+// decode a topojson arc; returns a nested array of lon/lat coordinates
 function decodeArc(topology, arc) {
   var x = 0, y = 0;
   return arc.map(function(position) {
@@ -37,6 +54,8 @@ function decodeArc(topology, arc) {
 }
 tu.decodeArc = decodeArc;
 
+// Make the appropriate sequence of HTML5 canvas context moveTo() and lineTo()
+// calls for tracing out the i-th arc in a topojson object.
 function walkArc(topo, i, map, ctx, first) {
     var j, k, reversed, p, pp;
     if (i >= 0) {
@@ -60,6 +79,8 @@ function walkArc(topo, i, map, ctx, first) {
 }
 tu.walkArc = walkArc;
 
+// depth-first traversal of a nested array of numbers: run the function
+//   f on every number in the array, recursing depth-first.
 function dfs(arr, f) {
     var i;
     for (i=0; i<arr.length; ++i) {
@@ -71,6 +92,7 @@ function dfs(arr, f) {
     }
 }
 
+// compute and return the bounding box for a topojson geom object g
 function geomBBox(g, topo) {
     var bbox = [[null,null],[null,null]];
     dfs(g.arcs, function(i) {
@@ -87,6 +109,8 @@ function geomBBox(g, topo) {
 
 tu.geomBBox = geomBBox;
 
+
+// test whether two boxes overlap
 function boxesOverlap(a,b) {
     return !(((a[0][0] < b[0][0]) && (a[0][1] < b[0][0]))
              ||
@@ -98,6 +122,7 @@ function boxesOverlap(a,b) {
 }
 tu.boxesOverlap = boxesOverlap;
 
+// test whether a box contains a point
 function boxContainsPoint(box,p) {
     return (p[0] >= box[0][0]) && (p[0] <= box[0][1]) && (p[1] >= box[1][0]) && (p[1] <= box[1][1]);
 }
@@ -295,22 +320,22 @@ function isPointInGeom(p, geom, topo) {
 }
 tu.isPointInGeom = isPointInGeom;
 
-function renderPolygon(ctx, map, arcs, rings, style, render) {
-    Object.keys(style).forEach(function(attr) {
-        ctx[attr] = style[attr];
-    });
-    render = render || { fill: true, stroke: true };
-    ctx.beginPath();
-    rings.forEach(function(ring) {
-        var first = true;
-        ring.forEach(function(i) {
-            walkArc(arcs, i, map, ctx, first);
-            first = false;
-        });
-        ctx.closePath();
-    });
-    if (render.fill) { ctx.fill(); }
-    if (render.stroke && style.lineWidth > 0) { ctx.stroke(); }
-}
+// function renderPolygon(ctx, map, arcs, rings, style, render) {
+//     Object.keys(style).forEach(function(attr) {
+//         ctx[attr] = style[attr];
+//     });
+//     render = render || { fill: true, stroke: true };
+//     ctx.beginPath();
+//     rings.forEach(function(ring) {
+//         var first = true;
+//         ring.forEach(function(i) {
+//             walkArc(arcs, i, map, ctx, first);
+//             first = false;
+//         });
+//         ctx.closePath();
+//     });
+//     if (render.fill) { ctx.fill(); }
+//     if (render.stroke && style.lineWidth > 0) { ctx.stroke(); }
+// }
 
 module.exports = tu;
