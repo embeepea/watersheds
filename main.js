@@ -4,18 +4,144 @@ require('./libs/leaflet/leaflet.css');
 require('./libs/Leaflet.CanvasLayer/leaflet_canvas_layer.js');
 var topojson = require('topojson');
 var sprintf = require('sprintf');
-var tu = require('./topojson_utils.js');
+var tu = require('./topojson-utils.js');
 var URL = require('./url_utils.js');
 
 var watersheds = {
+    // are we running on a mobile device?:
     isMobile: !!(/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)),
 
+    // stores topojson HUC12 geom objects by id string:
     geomByH12Code: {},
-    upstreamGeomByH12Code: {},
-    canvasLayer: null,
-    frozen: false,
 
-    pl: null,
+    // stores topojson upstream geom objects by id string:
+    upstreamGeomByH12Code: {},
+
+    // when the display is "frozen", cursor movement does not trigger a change in
+    // the currently displayed watershed
+    isFrozen: false,
+
+    launch: function(options) {
+        $("#helpscreen").hide();
+        $("#helpbutton").click(function() {
+            watersheds.displayHelp();
+        });
+        var where = {"center":{"lat":39.232253141714885,"lng":-95.8447265625},"zoom":4};
+        var defaults = {
+            mapCenter: [where.center.lat, where.center.lng],
+            mapZoom:   where.zoom
+        };
+        options = $.extend({}, defaults, options);
+        var div = options.div;
+        if (div instanceof jQuery) {
+            div = div[0];
+        }
+        var mbUrl = "https://api.tiles.mapbox.com/v4/{id}/{z}/{x}/{y}@2x.png?access_token=" + options.mapboxToken;
+        var streets     = L.tileLayer(mbUrl, {id: 'mapbox.streets'}),
+            satellite   = L.tileLayer(mbUrl, {id: 'mapbox.streets-satellite'}),
+            hydro       = L.tileLayer("http://basemap.nationalmap.gov/arcgis/rest/services/USGSHydroNHD/MapServer/tile/{z}/{y}/{x}");
+        var baseLayers = {
+            "Streets": streets,
+            "Satellite": satellite,
+            "Hydrology": hydro
+        };
+        watersheds.map = L.map(div, {
+            attributionControl: false,
+            maxZoom: 14,
+            minZoom: 2,
+            layers: [streets],
+            zoomControl: false,
+            zoomAnimation: watersheds.isMobile   // should be true on mobile, false elsewhere
+        });
+        var credits = L.control.attribution({
+            position: "bottomright"
+        }).addTo(watersheds.map);
+        credits.addAttribution("&copy; <a href='https://www.mapbox.com/map-feedback/'>Mapbox</a> &copy; <a href='http://www.openstreetmap.org/copyright'>OpenStreetMap</a>");
+
+        watersheds.where = function() {
+            console.log(JSON.stringify({
+                center: watersheds.map.getCenter(),
+                zoom: watersheds.map.getZoom()
+            }));
+        };
+        if (!watersheds.isMobile) {
+            // don't show zoom control on mobile devices
+            L.control.zoom({ position: 'topright' }).addTo(watersheds.map);
+        }
+        watersheds.permalink = Permalink(URL({url: window.location.toString()}));
+        if (!watersheds.permalink.haveZoom()) {
+            watersheds.permalink.setZoom(options.mapZoom);
+        }
+        if (!watersheds.permalink.haveCenter()) {
+            watersheds.permalink.setCenter(options.mapCenter);
+        }
+        watersheds.map.setView(watersheds.permalink.getCenter(), watersheds.permalink.getZoom());
+        watersheds.map.on('move', function(e) {
+            var c = watersheds.map.getCenter();
+            watersheds.permalink.setCenter([c.lat,c.lng]);
+            watersheds.permalink.setZoom(watersheds.map.getZoom());
+            window.history.replaceState({}, "", watersheds.permalink.toString());
+        });
+        if (watersheds.isMobile) {
+            watersheds.addMobileLayers();
+        } else {
+            watersheds.addCanvasLayer();
+        }
+        if (watersheds.isMobile) {
+            $('#map').removeClass("dimmed");
+            $('#splashmessage').hide();
+            watersheds.mobileDataUrlPrefix = options.mobileDataUrlPrefix;
+            watersheds.map.on('click', function(e) {
+                var ll = e.latlng;
+                watersheds.mobileLayers.huc12.clearLayers();
+                watersheds.mobileLayers.upstream.clearLayers();
+                watersheds.mobileLayers.downstream.clearLayers();
+                $.ajax({
+                    url: sprintf("%s/%f,%f", options.mobileWatershedLocationService, ll.lng, ll.lat),
+                    dataType: 'text',
+                    method: 'GET',
+                    success: watersheds.setMobileTargetId
+                });
+            });
+            if (watersheds.permalink.haveId()) {
+                watersheds.setMobileTargetId(watersheds.permalink.getId());
+                watersheds.splashmessage(watersheds.permalink.getId(), 1500);
+                watersheds.splashmessage("<center>Tap to change<br>watersheds</center>", 2000);
+            } else {
+                watersheds.splashmessage("<center>Tap to see<br>watersheds</center>", 2000);
+            }
+        } else {
+            watersheds.loadCompleteData(options.completeDataFileUrl, function() {
+                watersheds.map.on('mousemove', function(e) {
+                    if (!watersheds.isFrozen) {
+                        var ll = e.latlng;
+                        watersheds.setTargetHuc([ll.lng, ll.lat]);
+                    }
+                    watersheds.canvasLayer.render();
+                });
+                watersheds.map.on('click', function(e) {
+                    //if (watersheds.targetHuc) {
+                    //    console.log(watersheds.targetHuc.id);
+                    //}
+                    watersheds.isFrozen = !watersheds.isFrozen;
+                });
+                if (watersheds.permalink.haveId()) {
+                    if (watersheds.permalink.getId() in watersheds.geomByH12Code) {
+                        watersheds.targetHuc = watersheds.geomByH12Code[watersheds.permalink.getId()];
+                        watersheds.isFrozen = true;
+                        watersheds.canvasLayer.render();
+                    }
+                    watersheds.splashmessage("<center>Click to change watersheds</center>", 1500);
+                } else {
+                    watersheds.splashmessage("<center>Move the cursor to<br>see watersheds</center>", 1500);
+                }
+                $('#map').hide();
+                $('#map').removeClass("dimmed");
+                $('#map').fadeIn(750);
+            });
+        }
+
+    },
 
     splashmessage: function(text, showMs) {
         if (showMs === undefined) { showMs = 1000; }
@@ -40,7 +166,7 @@ var watersheds = {
         geom.forEach(function(ring) {
             var first = true;
             ring.forEach(function(i) {
-                tu.walkarc(topo, i, watersheds.map, ctx, first);
+                tu.walkArc(topo, i, watersheds.map, ctx, first);
                 first = false;
             });
             ctx.closePath();
@@ -51,7 +177,7 @@ var watersheds = {
         var ring = geom[0];
         var first = true;
         ring.forEach(function(i) {
-            tu.walkarc(topo, i, watersheds.map, ctx, first);
+            tu.walkArc(topo, i, watersheds.map, ctx, first);
             first = false;
         });
         ctx.closePath();
@@ -97,7 +223,7 @@ var watersheds = {
                         if (geom.id) {
                             watersheds.geomByH12Code[geom.id] = geom;
                         }
-                        geom.bbox = tu.geom_bbox(geom, topo);
+                        geom.bBox = tu.geomBBox(geom, topo);
                     });
                     topo.objects['upstream'].geometries.forEach(function(geom) {
                         if (geom.id) {
@@ -201,12 +327,12 @@ var watersheds = {
         var bds = watersheds.map.getBounds();
         var extent = [[bds.getWest(), bds.getEast()],[bds.getSouth(),bds.getNorth()]];
         watersheds.h12Topo.objects['huc12'].geometries.forEach(function(geom) {
-            if (tu.boxes_overlap(geom.bbox, extent)) {
-                if (tu.box_contains_point(geom.bbox, p)) {
-                    if (tu.point_in_geom2d(p, geom, watersheds.h12Topo)) {
+            if (tu.boxesOverlap(geom.bBox, extent)) {
+                if (tu.boxContainsPoint(geom.bBox, p)) {
+                    if (tu.isPointInGeom(p, geom, watersheds.h12Topo)) {
                         watersheds.targetHuc = geom;
-                        watersheds.pl.setId(geom.id);
-                        window.history.replaceState({}, "", watersheds.pl.toString());
+                        watersheds.permalink.setId(geom.id);
+                        window.history.replaceState({}, "", watersheds.permalink.toString());
                     }
                 }
             }
@@ -243,7 +369,7 @@ var watersheds = {
                 dataType: 'json',
                 method: 'GET',
                 success: function(topo) {
-                    watersheds.pl.setId(targetHucId);
+                    watersheds.permalink.setId(targetHucId);
                     if (topo.objects.huc12) {
                         watersheds.mobileLayers.huc12.addData(
                             topojson.feature(topo,
@@ -261,134 +387,8 @@ var watersheds = {
                     }
                 }});
         }
-    },
-
-    launch: function(options) {
-        $("#helpscreen").hide();
-        $("#helpbutton").click(function() {
-            watersheds.displayHelp();
-        });
-        //var where = {"center":{"lat":36.04021586880111,"lng":-83.5455322265625},"zoom":9};
-        var where = {"center":{"lat":39.232253141714885,"lng":-95.8447265625},"zoom":4};
-        var defaults = {
-            // // center of conus, zoomed out to see almost all of it:
-            // map_center: [39.0,-99.0],
-            // map_zoom:   5
-            // NC:
-            map_center: [where.center.lat, where.center.lng],
-            map_zoom:   where.zoom
-        };
-        options = $.extend({}, defaults, options);
-        var div = options.div;
-        if (div instanceof jQuery) {
-            div = div[0];
-        }
-        var mbUrl = "https://api.tiles.mapbox.com/v4/{id}/{z}/{x}/{y}@2x.png?access_token=" + options.mapboxToken;
-        var streets     = L.tileLayer(mbUrl, {id: 'mapbox.streets'}),
-            satellite   = L.tileLayer(mbUrl, {id: 'mapbox.streets-satellite'}),
-            hydro       = L.tileLayer("http://basemap.nationalmap.gov/arcgis/rest/services/USGSHydroNHD/MapServer/tile/{z}/{y}/{x}");
-        var baseLayers = {
-            "Streets": streets,
-            "Satellite": satellite,
-            "Hydrology": hydro
-        };
-        watersheds.map = L.map(div, {
-            attributionControl: false,
-            maxZoom: 14,
-            minZoom: 2,
-            layers: [streets],
-            zoomControl: false,
-            zoomAnimation: watersheds.isMobile   // should be true on mobile, false elsewhere
-        });
-        var credits = L.control.attribution({
-            position: "bottomright"
-        }).addTo(watersheds.map);
-        credits.addAttribution("&copy; <a href='https://www.mapbox.com/map-feedback/'>Mapbox</a> &copy; <a href='http://www.openstreetmap.org/copyright'>OpenStreetMap</a>");
-
-        watersheds.where = function() {
-            console.log(JSON.stringify({
-                center: watersheds.map.getCenter(),
-                zoom: watersheds.map.getZoom()
-            }));
-        };
-        if (!watersheds.isMobile) {
-            // don't show zoom control on mobile devices
-            L.control.zoom({ position: 'topright' }).addTo(watersheds.map);
-        }
-        watersheds.pl = Permalink(URL({url: window.location.toString()}));
-        if (!watersheds.pl.haveZoom()) {
-            watersheds.pl.setZoom(options.map_zoom);
-        }
-        if (!watersheds.pl.haveCenter()) {
-            watersheds.pl.setCenter(options.map_center);
-        }
-        watersheds.map.setView(watersheds.pl.getCenter(), watersheds.pl.getZoom());
-        watersheds.map.on('move', function(e) {
-            var c = watersheds.map.getCenter();
-            watersheds.pl.setCenter([c.lat,c.lng]);
-            watersheds.pl.setZoom(watersheds.map.getZoom());
-            window.history.replaceState({}, "", watersheds.pl.toString());
-        });
-        if (watersheds.isMobile) {
-            watersheds.addMobileLayers();
-        } else {
-            watersheds.addCanvasLayer();
-        }
-        if (watersheds.isMobile) {
-            $('#map').removeClass("dimmed");
-            $('#splashmessage').hide();
-            watersheds.mobileDataUrlPrefix = options.mobileDataUrlPrefix;
-            watersheds.map.on('click', function(e) {
-                var ll = e.latlng;
-                watersheds.mobileLayers.huc12.clearLayers();
-                watersheds.mobileLayers.upstream.clearLayers();
-                watersheds.mobileLayers.downstream.clearLayers();
-                $.ajax({
-                    url: sprintf("%s/%f,%f", options.mobileWatershedLocationService, ll.lng, ll.lat),
-                    dataType: 'text',
-                    method: 'GET',
-                    success: watersheds.setMobileTargetId
-                });
-            });
-            if (watersheds.pl.haveId()) {
-                watersheds.setMobileTargetId(watersheds.pl.getId());
-                watersheds.splashmessage(watersheds.pl.getId(), 1500);
-                watersheds.splashmessage("<center>Tap to change<br>watersheds</center>", 2000);
-            } else {
-                watersheds.splashmessage("<center>Tap to see<br>watersheds</center>", 2000);
-            }
-        } else {
-            watersheds.loadCompleteData(options.completeDataFileUrl, function() {
-                watersheds.map.on('mousemove', function(e) {
-                    if (!watersheds.frozen) {
-                        var ll = e.latlng;
-                        watersheds.setTargetHuc([ll.lng, ll.lat]);
-                    }
-                    watersheds.canvasLayer.render();
-                });
-                watersheds.map.on('click', function(e) {
-                    //if (watersheds.targetHuc) {
-                    //    console.log(watersheds.targetHuc.id);
-                    //}
-                    watersheds.frozen = !watersheds.frozen;
-                });
-                if (watersheds.pl.haveId()) {
-                    if (watersheds.pl.getId() in watersheds.geomByH12Code) {
-                        watersheds.targetHuc = watersheds.geomByH12Code[watersheds.pl.getId()];
-                        watersheds.frozen = true;
-                        watersheds.canvasLayer.render();
-                    }
-                    watersheds.splashmessage("<center>Click to change watersheds</center>", 1500);
-                } else {
-                    watersheds.splashmessage("<center>Move the cursor to<br>see watersheds</center>", 1500);
-                }
-                $('#map').hide();
-                $('#map').removeClass("dimmed");
-                $('#map').fadeIn(750);
-            });
-        }
-
     }
+
 };
 
 function Permalink(url) {
