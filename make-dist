@@ -1,0 +1,20 @@
+#! /bin/bash
+
+/bin/rm -rf dist
+mkdir dist
+
+cp dist-watersheds-config.js dist/watersheds-config.js
+
+cp favicon.ico dist
+cp fli-logo-300.png dist
+cp help.desktop.html dist
+cp help.mobile.html dist
+sed -e 's/src="watersheds.js"/src="watersheds.min.js"/' < index.html > dist/index.html
+cp style.css dist
+cp watersheds.min.js dist
+mkdir dist/libs
+
+cp -r libs/font-awesome-4.6.1 dist/libs
+cp -r libs/jquery dist/libs
+
+

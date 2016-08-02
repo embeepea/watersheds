@@ -24,6 +24,7 @@ module.exports = {
             //{ test: /\.(png|jpg)$/, loader: "file-loader?name=images/[name].[ext]" }
         ],
         noParse: [/libs\/jquery/,
+                  /libs\/stamen/,
                   /libs\/leaflet\/leaflet\.js/,
                   /libs\/Leaflet\.CanvasLayer\/leaflet_canvas_layer\.js/,
                   /libs\/Leaflet\.CanvasLayer/]

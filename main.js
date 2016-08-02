@@ -2,6 +2,7 @@ require('./style.css');
 require('./libs/leaflet/leaflet.js');
 require('./libs/leaflet/leaflet.css');
 require('./libs/Leaflet.CanvasLayer/leaflet_canvas_layer.js');
+require('./libs/stamen/tile.stamen.js');
 var topojson = require('topojson');
 var sprintf = require('sprintf');
 var tu = require('./topojson-utils.js');
@@ -40,7 +41,6 @@ var watersheds = {
 
     // Launch the appliation with the given options.  Options are:
     //   required:
-    //     mapboxToken
     //     completeDataFileUrl
     //     mobileWatershedLocationService
     //     mobileDataUrlPrefix
@@ -64,28 +64,20 @@ var watersheds = {
         if (div instanceof jQuery) {
             div = div[0];
         }
-        var mbUrl = "https://api.tiles.mapbox.com/v4/{id}/{z}/{x}/{y}@2x.png?access_token=" + options.mapboxToken;
-        var streets     = L.tileLayer(mbUrl, {id: 'mapbox.streets'}),
-            satellite   = L.tileLayer(mbUrl, {id: 'mapbox.streets-satellite'}),
-            hydro       = L.tileLayer("http://basemap.nationalmap.gov/arcgis/rest/services/USGSHydroNHD/MapServer/tile/{z}/{y}/{x}");
-        var baseLayers = {
-            "Streets": streets,
-            "Satellite": satellite,
-            "Hydrology": hydro
-        };
+        var stamen = new L.StamenTileLayer("terrain");
+
         watersheds.map = L.map(div, {
             attributionControl: false,
             maxZoom: 14,
             minZoom: 2,
-            layers: [streets],
+            //layers: [streets],
+            layers: [stamen],
             zoomControl: false,
             zoomAnimation: watersheds.isMobile   // should be true on mobile, false elsewhere
         });
         var credits = L.control.attribution({
             position: "bottomright"
         }).addTo(watersheds.map);
-        credits.addAttribution("&copy; <a href='https://www.mapbox.com/map-feedback/'>Mapbox</a> &copy; <a href='http://www.openstreetmap.org/copyright'>OpenStreetMap</a>");
-
         watersheds.where = function() {
             console.log(JSON.stringify({
                 center: watersheds.map.getCenter(),
@@ -258,6 +250,11 @@ var watersheds = {
                 url: completeDataFileUrl,
                 dataType: 'json',
                 method: 'GET',
+                error: function(jqXHR, textStatus, errorThrown) {
+                    console.log('error');
+                    console.log(textStatus);
+                    console.log(errorThrown);
+                },
                 success: function(data) {
                     var topo = data.topo;
                     topo.decodedArcs = topo.arcs.map(function(arc) { return tu.decodeArc(topo, arc); });

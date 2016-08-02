@@ -8,7 +8,8 @@
     "dev": "webpack-dev-server --progress --colors --inline",
     "local": "webpack-dev-server --host 192.168.1.6 --progress --colors --inline",
     "build": "webpack",
-    "build-min": "PROD_ENV=1 webpack"
+    "build-min": "PROD_ENV=1 webpack",
+    "dist": "PROD_ENV=1 webpack ; ./make-dist"
   },
   "author": "Mark Phillips <mark@fernleafinteractive.com>",
   "dependencies": {
