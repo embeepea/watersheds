@@ -131,6 +131,9 @@
 	        var credits = L.control.attribution({
 	            position: "bottomright"
 	        }).addTo(watersheds.map);
+
+	        credits.addAttribution('<a href="http://nhd.usgs.gov/wbd.html">Watershed Boundary Dataset</a> by USGS');
+
 	        watersheds.where = function() {
 	            console.log(JSON.stringify({
 	                center: watersheds.map.getCenter(),
@@ -140,6 +143,14 @@
 	        if (!watersheds.isMobile) {
 	            // don't show zoom control on mobile devices
 	            L.control.zoom({ position: 'topright' }).addTo(watersheds.map);
+	        }
+	        if (watersheds.isMobile) {
+	            // move FLI logo and help button up a bit, because leaflet attribution
+	            // wraps to 2 lines on phones
+	            $("#helpbutton").removeClass("helpbutton-y");
+	            $("#helpbutton").addClass("helpbutton-mobile-y");
+	            $("#fli-logo").removeClass("fli-logo-y");
+	            $("#fli-logo").addClass("fli-logo-mobile-y");
 	        }
 	        watersheds.permalink = Permalink(URL({url: window.location.toString()}));
 	        if (!watersheds.permalink.haveZoom()) {

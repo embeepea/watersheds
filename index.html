@@ -39,10 +39,15 @@
   .dimmed {
     opacity: 0.2;
   }
-  #helpbutton {
+  .helpbutton-y {
+    bottom: 10px;
+  }
+  .helpbutton-mobile-y {
+    bottom: 35px;
+  }
+  .helpbutton {
     position: absolute;
     left: 10px;
-    bottom: 10px;
     font-size: 24pt;
   }
   #helpbutton i.fa-question-circle-o {
@@ -79,10 +84,15 @@
   .closebutton .fa-times-circle-o {
     cursor: pointer;
   }
-  #fli-logo {
+  .fli-logo-y {
+    bottom: 25px;
+  }
+  .fli-logo-mobile-y {
+    bottom: 35px;
+  }
+  .fli-logo {
     position: absolute;
     right: 10px;
-    bottom: 25px;
     padding: 5px;
     border-radius: 5px;
     background-color: #ffffff;
@@ -96,8 +106,8 @@
   <body>
     <div id="map" class="dimmed"></div>
     <div id="splashmessage" class="splashmessage">loading...</div>
-    <div id="fli-logo"><a href="http://fernleafinteractive.com"><img class="logo" src="fli-logo-300.png"></a></div>
-    <div id="helpbutton"><i class="fa fa-question-circle-o" aria-hidden="true"></i></div>
+    <div id="fli-logo" class="fli-logo fli-logo-y"><a href="http://fernleafinteractive.com"><img class="logo" src="fli-logo-300.png"></a></div>
+    <div id="helpbutton" class="helpbutton helpbutton-y"><i class="fa fa-question-circle-o" aria-hidden="true"></i></div>
     <div id="helpscreen"><div class="helpinset"></div></div>
   </body>
 </html>
