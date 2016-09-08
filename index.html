@@ -13,7 +13,10 @@
       mapboxToken: watershedsConfig.mapboxToken,
       completeDataFileUrl: watershedsConfig.completeDataFileUrl,
       mobileWatershedLocationService: watershedsConfig.mobileWatershedLocationService,
-      mobileDataUrlPrefix: watershedsConfig.mobileDataUrlPrefix
+      mobileDataUrlPrefix: watershedsConfig.mobileDataUrlPrefix,
+      mapBackgroundLayerFunc: watershedsConfig.mapBackgroundLayerFunc,
+      mapAttributionsFunc: watershedsConfig.mapAttributionsFunc,
+      displayUrlBanner: watershedsConfig.displayUrlBanner
     });});</script>
   </head>
 <style type="text/css">
@@ -102,6 +105,28 @@
   .logo {
     width: 150px;
   }
+  #urlcontainer {
+    position: absolute;
+    width: 100%;
+    left: 0px;
+    top: -5px;
+    text-align: center;
+  }
+  #url {
+    margin: 0 auto;
+    padding: 8px;
+    padding-left: 12px;
+    padding-right: 12px; 
+    background-color: #ffffff;
+    display: inline-block;
+    font-weight: bold;
+    font-size: 24pt;
+    border: 1px solid black;
+    border-radius: 5px;
+  }
+  .display-none {
+    display: none
+  }
 </style>
   <body>
     <div id="map" class="dimmed"></div>
@@ -109,6 +134,7 @@
     <div id="fli-logo" class="fli-logo fli-logo-y"><a href="http://fernleafinteractive.com"><img class="logo" src="fli-logo-300.png"></a></div>
     <div id="helpbutton" class="helpbutton helpbutton-y"><i class="fa fa-question-circle-o" aria-hidden="true"></i></div>
     <div id="helpscreen"><div class="helpinset"></div></div>
+    <div id="urlcontainer" class="display-none"><div id="url">watersheds.FernLeafInteractive.com</span></div>
   </body>
 </html>
 

@@ -51,6 +51,9 @@ var watersheds = {
     // overridden by values specified in the URL used to launch the application,
     // if that URL contains those values.
     launch: function(options) {
+        if (options.displayUrlBanner) {
+            $("#urlcontainer").removeClass("display-none");
+        }
         $("#helpscreen").hide();
         $("#helpbutton").click(function() {
             watersheds.displayHelp();
@@ -64,20 +67,30 @@ var watersheds = {
         if (div instanceof jQuery) {
             div = div[0];
         }
-        var stamen = new L.StamenTileLayer("terrain");
+
+        var bgLayer;
+
+        if (options.mapBackgroundLayerFunc) {
+            bgLayer = options.mapBackgroundLayerFunc(L);
+        } else {
+            bgLayer = new L.StamenTileLayer("terrain");
+        }
 
         watersheds.map = L.map(div, {
             attributionControl: false,
             maxZoom: 14,
             minZoom: 2,
-            //layers: [streets],
-            layers: [stamen],
+            layers: [bgLayer],
             zoomControl: false,
             zoomAnimation: watersheds.isMobile   // should be true on mobile, false elsewhere
         });
         var credits = L.control.attribution({
             position: "bottomright"
         }).addTo(watersheds.map);
+
+        if (options.mapAttributionsFunc) {
+            options.mapAttributionsFunc(credits);
+        }
 
         credits.addAttribution('<a href="http://nhd.usgs.gov/wbd.html">Watershed Boundary Dataset</a> by USGS');
 
