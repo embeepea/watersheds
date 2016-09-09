@@ -52,3 +52,13 @@ and its upstream and downstream polygons.  Each tap on the map results in
 a new request for a HUC12 id, followed by a new request to S3 for a topojson
 file for the tapped location.  Most of these topojson files are very small,
 which allows the download and rendering to happen very quickly.
+
+Copyright / License
+===================
+
+Copyright 2016 FernLeaf Interactive, LLC
+
+This application is distributed under the terms of the Creative
+Commons Attribution-NonCommercial 4.0 International License; see
+[https://creativecommons.org/licenses/by-nc/4.0]
+(https://creativecommons.org/licenses/by-nc/4.0) for details.
